@@ -124,3 +124,16 @@ In `src/test/resources/data/query-instantiation`, we provide example artifacts f
 **DBRepro** uses the open-source [Mirage](https://github.com/DBHammer/Mirage) framework. We extend its capabilities by introducing global data distributions, scaling factors for complex joins, and integrating comprehensive catalog statistics to achieve high-fidelity slow query reproduction. 
 
 For additional details on the base functionality (such as detailed configuration options or manual source code patches), please refer to the upstream [Mirage README](https://github.com/DBHammer/Mirage/blob/main/README.md).
+
+
+## Citation
+
+If you find this work useful or use it in your research, please cite our paper:
+
+```bibtex
+@misc{zhang2026dbrepro,
+  title={DBRepro: Automated Hybrid Database Synthesis for Reproducing Analytical Slow Queries},
+  author={Zhang, Zhaoyang and Liu, Shuang and Xu, Dengfeng and Lu, Wei and Leng, Jianquan and Du, Sheng and Du, Xiaoyong},
+  year={2026},
+  note={Under Review}
+}
