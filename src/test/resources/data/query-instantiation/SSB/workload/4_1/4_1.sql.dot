@@ -1,0 +1,27 @@
+digraph "4_1.sql" {rankdir=BT;
+    subgraph "clusterp_partkey3" {
+            "Pkp_partkey3"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey3"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey4" {
+            "Pks_suppkey4"[style=filled, color="#FFCCCC"];
+
+            "Fks_suppkey4"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+	"public.lineorder"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineorder"->"Fkp_partkey3"[label="1.0"]
+	"Fkp_partkey3"->"Fks_suppkey4"[label="0.0395"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"Fks_suppkey4"->RESULT[label="0.1882"]
+	"p_category = '#35'"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"p_category = '#35'"[label="1.0"]
+	"p_category = '#35'"->"Pkp_partkey3"[label="0.0394"];
+	"s_region = '#34'"[style=filled, color="#FFCCCC"];
+	"public.supplier"[shape=box,style=filled, color="#FFCCCC"];
+	"public.supplier"->"s_region = '#34'"[label="1.0"]
+	"s_region = '#34'"->"Pks_suppkey4"[label="0.1890"];
+}

@@ -1,0 +1,85 @@
+{
+  "17_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.part.p_partkey",
+          "localCols" : "public.lineitem.l_partkey",
+          "pkTag" : 1,
+          "probability" : 0.0010092956,
+          "type" : "INNER_JOIN"
+        }
+      ],
+      "tableName" : "public.lineitem"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 30,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0.001025,
+                    "canonicalColumnName" : "public.part.p_brand",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 31,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0.001025,
+                    "canonicalColumnName" : "public.part.p_container",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.001025
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "p_partkey"
+          ],
+          "pkTag" : 1
+        }
+      ],
+      "tableName" : "public.part"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "AGGREGATE",
+          "groupKey" : [
+            "public.lineitem.l_partkey"
+          ],
+          "aggProbability" : 0.0333265846
+        }
+      ],
+      "tableName" : "public.lineitem"
+    }
+  ]
+}

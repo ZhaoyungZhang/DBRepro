@@ -1,0 +1,201 @@
+{
+  "9_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.customer.c_custkey",
+          "localCols" : "public.lineorder.lo_custkey",
+          "pkTag" : 5,
+          "probability" : 0.0083522032,
+          "type" : "INNER_JOIN"
+        },
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.supplier.s_suppkey",
+          "localCols" : "public.lineorder.lo_suppkey",
+          "pkTag" : 9,
+          "probability" : 0.0095963928,
+          "type" : "INNER_JOIN"
+        },
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.dates.d_datekey",
+          "localCols" : "public.lineorder.lo_orderdate",
+          "pkTag" : 8,
+          "probability" : 0.9085239085,
+          "type" : "INNER_JOIN"
+        }
+      ],
+      "tableName" : "public.lineorder"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "OR",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 51,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0.0086333333,
+                    "canonicalColumnName" : "public.customer.c_city",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 52,
+                        "data" : -1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0,
+                    "canonicalColumnName" : "public.customer.c_city",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.0086333333
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "c_custkey"
+          ],
+          "pkTag" : 5
+        }
+      ],
+      "tableName" : "public.customer"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "OR",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 49,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0.0095,
+                    "canonicalColumnName" : "public.supplier.s_city",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 50,
+                        "data" : -1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0,
+                    "canonicalColumnName" : "public.supplier.s_city",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.0095
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "s_suppkey"
+          ],
+          "pkTag" : 9
+        }
+      ],
+      "tableName" : "public.supplier"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 53,
+                        "data" : 2,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GE",
+                    "probability" : 0.8575899843,
+                    "canonicalColumnName" : "public.dates.d_year",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 54,
+                        "data" : 27,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LE",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.dates.d_year",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.8575899843
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "d_datekey"
+          ],
+          "pkTag" : 8
+        }
+      ],
+      "tableName" : "public.dates"
+    }
+  ]
+}

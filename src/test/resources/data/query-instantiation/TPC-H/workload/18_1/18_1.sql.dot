@@ -1,0 +1,9 @@
+digraph "18_1.sql" {rankdir=BT;
+	"GroupKey:public.lineitem.l_orderkey"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"GroupKey:public.lineitem.l_orderkey"[label="1.0"]
+	"sum(public.lineitem.l_quantity) > #32"[style=filled, color="#FFFFCC"];
+	"GroupKey:public.lineitem.l_orderkey"->"sum(public.lineitem.l_quantity) > #32"[label="0.2499"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"sum(public.lineitem.l_quantity) > #32"->RESULT[label="0.0000"]
+}

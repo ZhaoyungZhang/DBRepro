@@ -1,0 +1,59 @@
+digraph "8_1.sql" {rankdir=BT;
+    subgraph "clusterc_custkey5" {
+            "Pkc_custkey5"[style=filled, color="#FFFFCC"];
+
+            "Fkc_custkey5"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clustern_nationkey8" {
+            "Pkn_nationkey8"[style=filled, color="#FFCCCC"];
+
+            "Fkn_nationkey8"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clustero_orderkey6" {
+            "Pko_orderkey6"[style=filled, color="#FFFFCC"];
+
+            "Fko_orderkey6"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterp_partkey5" {
+            "Pkp_partkey5"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey5"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterr_regionkey2" {
+            "Pkr_regionkey2"[style=filled, color="#FFCCCC"];
+
+            "Fkr_regionkey2"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+	"public.customer"[shape=box,style=filled, color="#FFFFCC"];
+	"public.customer"->"Fkn_nationkey8"[label="1.0"]
+	"Fkn_nationkey8"->"Pkc_custkey5"[label="0.2012"];
+	"public.lineitem"[shape=box,style=filled, color="#CCFFFF"];
+	"public.lineitem"->"Fkp_partkey5"[label="1.0"]
+	"Fkp_partkey5"->"Fko_orderkey6"[label="0.0069"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"Fko_orderkey6"->RESULT[label="0.0632"]
+	"public.nation"[shape=box,style=filled, color="#FFCCCC"];
+	"public.nation"->"Fkr_regionkey2"[label="1.0"]
+	"Fkr_regionkey2"->"Pkn_nationkey8"[label="0.2000"];
+	"(o_orderdate >= '#109' and
+o_orderdate <= '#110')"[style=filled, color="#FFFFCC"];
+	"public.orders"[shape=box,style=filled, color="#FFFFCC"];
+	"public.orders"->"(o_orderdate >= '#109' and
+o_orderdate <= '#110')"[label="1.0"]
+	"(o_orderdate >= '#109' and
+o_orderdate <= '#110')"->"Fkc_custkey5"[label="0.3048"];
+	"Fkc_custkey5"->"Pko_orderkey6"[label="0.2006"];
+	"p_type = '#111'"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"p_type = '#111'"[label="1.0"]
+	"p_type = '#111'"->"Pkp_partkey5"[label="0.0068"];
+	"r_name = '#108'"[style=filled, color="#FFCCCC"];
+	"public.region"[shape=box,style=filled, color="#FFCCCC"];
+	"public.region"->"r_name = '#108'"[label="1.0"]
+	"r_name = '#108'"->"Pkr_regionkey2"[label="0.2000"];
+}

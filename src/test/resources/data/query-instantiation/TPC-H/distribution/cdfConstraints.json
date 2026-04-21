@@ -1,0 +1,207 @@
+{
+  "public.region.r_name" : {
+    "AFRICA" : {
+      "selectivity" : "0.2",
+      "operator" : "EQ",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.part.p_type" : {
+    "STANDARD ANODIZED NICKEL" : {
+      "selectivity" : "0.00416",
+      "operator" : "LIKE",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "MEDIUM PLATED STEEL" : {
+      "selectivity" : "0.006835",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.lineitem.l_returnflag" : {
+    "A" : {
+      "selectivity" : "0.2464284315",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.orders.o_comment" : {
+    " after the slyly regular deposits haggle after the furiously even " : {
+      "selectivity" : "0.0107913334",
+      "operator" : "LIKE",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.customer.c_mktsegment" : {
+    "FURNITURE" : {
+      "selectivity" : "0.1997866666",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.part.p_name" : {
+    "almond smoke yellow deep dark" : {
+      "selectivity" : "0.011165",
+      "operator" : "LIKE",
+      "constraintType" : "ADD_MCV"
+    },
+    "beige papaya almond yellow seashell" : {
+      "selectivity" : "0.0544",
+      "operator" : "LIKE",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.orders.o_orderstatus" : {
+    "O" : {
+      "selectivity" : "0.4862753333",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.part.p_brand" : {
+    "Brand#54" : {
+      "selectivity" : "0.001025",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "Brand#25" : {
+      "selectivity" : "0.00243",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.part.p_container" : {
+    "WRAP DRUM" : {
+      "selectivity" : "0.001025",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "LG DRUM" : {
+      "selectivity" : "0.0006075000",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "SM BAG" : {
+      "selectivity" : "0.0006075000",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "WRAP BOX" : {
+      "selectivity" : "0.0006075000",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "JUMBO CAN" : {
+      "selectivity" : "0.0006075000",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.supplier.s_comment" : {
+    " about the blithely express foxes. bli" : {
+      "selectivity" : "0.0004",
+      "operator" : "LIKE",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.part.p_size" : {
+    "41" : {
+      "selectivity" : "0.00416",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "7" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "10" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "34" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "2" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "1" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "28" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "29" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "12" : {
+      "selectivity" : "0.0185381250",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.lineitem.l_shipmode" : {
+    "AIR" : {
+      "selectivity" : "0.0025692297",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "MAIL" : {
+      "selectivity" : "0.0025692297",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "TRUCK" : {
+      "selectivity" : "0.0096208851",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "RAIL" : {
+      "selectivity" : "0.0096208851",
+      "operator" : "IN",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.lineitem.l_shipinstruct" : {
+    "COLLECT COD" : {
+      "selectivity" : "0.0192417702",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.nation.n_name" : {
+    "ALGERIA" : {
+      "selectivity" : "0.04",
+      "operator" : "EQ",
+      "constraintType" : "ADD_MCV"
+    },
+    "ARGENTINA" : {
+      "selectivity" : "0.08",
+      "operator" : "EQ",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.customer.c_phone" : {
+    "13-158-796-2230" : {
+      "selectivity" : "0.1272000002",
+      "operator" : "IN",
+      "constraintType" : "ADD_MCV"
+    },
+    "16-400-735-8061" : {
+      "selectivity" : "0.2555866663",
+      "operator" : "IN",
+      "constraintType" : "ADD_MCV"
+    }
+  }
+}

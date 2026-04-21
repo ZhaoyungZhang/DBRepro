@@ -1,0 +1,269 @@
+{
+  "public.customer.c_acctbal" : {
+    "-79" : "-999.86",
+    "-70" : "-999.86",
+    "1099999" : "4486.54"
+  },
+  "public.customer.c_address" : {
+    "1" : "y 2oVTd5b,sGZ6SyLZQ9kZROZtLz"
+  },
+  "public.customer.c_comment" : {
+    "1" : "y brave requests. quickly ironic deposits boost idly carefully special ideas. blithely regular reque"
+  },
+  "public.customer.c_custkey" : {
+    "150000" : "46438"
+  },
+  "public.customer.c_mktsegment" : {
+    "1" : "FURNITURE",
+    "5" : "FURNITURE"
+  },
+  "public.customer.c_name" : {
+    "1" : "Customer#000145361"
+  },
+  "public.customer.c_nationkey" : {
+    "25" : "6"
+  },
+  "public.customer.c_phone" : {
+    "1" : "13-158-796-2230",
+    "2" : "13-158-796-2230",
+    "3" : "13-158-796-2230",
+    "4" : "13-158-796-2230",
+    "5" : "13-158-796-2230",
+    "6" : "13-158-796-2230",
+    "7" : "13-158-796-2230",
+    "8" : "16-400-735-8061",
+    "9" : "16-400-735-8061",
+    "10" : "16-400-735-8061",
+    "11" : "16-400-735-8061",
+    "12" : "16-400-735-8061",
+    "13" : "16-400-735-8061",
+    "14" : "16-400-735-8061",
+    "150000" : "17-903-105-3309"
+  },
+  "public.lineitem.l_comment" : {
+    "1" : "ideas. regular, final ideas nag"
+  },
+  "public.lineitem.l_commitdate" : {
+    "2466" : "1993-07-26"
+  },
+  "public.lineitem.l_discount" : {
+    "-98" : "-0.01",
+    "11" : "0.09",
+    "31" : "0.11"
+  },
+  "public.lineitem.l_extendedprice" : {
+    "1" : "84235.28"
+  },
+  "public.lineitem.l_linenumber" : {
+    "1" : "5"
+  },
+  "public.lineitem.l_linestatus" : {
+    "1" : "O"
+  },
+  "public.lineitem.l_orderkey" : {
+    "1500000" : "3152354"
+  },
+  "public.lineitem.l_partkey" : {
+    "200000" : "168928"
+  },
+  "public.lineitem.l_quantity" : {
+    "-55" : "0.99",
+    "4901" : "46.00",
+    "4921" : "50.01"
+  },
+  "public.lineitem.l_receiptdate" : {
+    "-12" : "1992-01-11",
+    "2554" : "1994-10-28",
+    "2574" : "1998-06-15"
+  },
+  "public.lineitem.l_returnflag" : {
+    "1" : "A",
+    "3" : "R"
+  },
+  "public.lineitem.l_shipdate" : {
+    "1154" : "1994-06-28",
+    "1753" : "1995-10-15",
+    "2425" : "1997-06-29",
+    "2475" : "1997-08-05",
+    "2492" : "1997-08-17",
+    "2507" : "1997-08-17",
+    "2526" : "1993-06-05",
+    "2546" : "1998-05-25"
+  },
+  "public.lineitem.l_shipinstruct" : {
+    "1" : "COLLECT COD",
+    "4" : "NONE"
+  },
+  "public.lineitem.l_shipmode" : {
+    "1" : "AIR",
+    "2" : "MAIL",
+    "3" : "RAIL",
+    "7" : "RAIL"
+  },
+  "public.lineitem.l_suppkey" : {
+    "10000" : "8051"
+  },
+  "public.lineitem.l_tax" : {
+    "1" : "0.06"
+  },
+  "public.nation.n_comment" : {
+    "1" : "ic deposits are blithely about the carefully regular pa"
+  },
+  "public.nation.n_name" : {
+    "-106" : "-QTSCEL",
+    "-102" : "-QTSCEL",
+    "1" : "ALGERIA",
+    "2" : "ALGERIA",
+    "3" : "ALGERIA",
+    "4" : "ARGENTINA",
+    "25" : "ETHIOPIA"
+  },
+  "public.nation.n_nationkey" : {
+    "25" : "6"
+  },
+  "public.nation.n_regionkey" : {
+    "5" : "2"
+  },
+  "public.orders.o_clerk" : {
+    "1" : "Clerk#000000629"
+  },
+  "public.orders.o_comment" : {
+    "1" : " after the slyly regular deposits haggle after the furiously even ",
+    "1482071" : "riously even sheaves. slyly regular hockey players haggle furiou"
+  },
+  "public.orders.o_custkey" : {
+    "99996" : "125834"
+  },
+  "public.orders.o_orderdate" : {
+    "1160" : "1994-11-29",
+    "1671" : "1996-02-27",
+    "2041" : "1997-03-20",
+    "2313" : "1997-12-07",
+    "2316" : "1997-12-07",
+    "2407" : "1995-10-08",
+    "2426" : "1998-03-12"
+  },
+  "public.orders.o_orderkey" : {
+    "1500000" : "3193089"
+  },
+  "public.orders.o_orderpriority" : {
+    "5" : "3-MEDIUM"
+  },
+  "public.orders.o_orderstatus" : {
+    "1" : "O",
+    "3" : "P"
+  },
+  "public.orders.o_shippriority" : {
+    "1" : "0"
+  },
+  "public.orders.o_totalprice" : {
+    "1" : "325507.44"
+  },
+  "public.part.p_brand" : {
+    "-46" : "-HYPIiAG",
+    "-40" : "-HYPIiAG",
+    "-20" : "-HYPIiAG",
+    "1" : "Brand#54",
+    "2" : "Brand#25",
+    "25" : "Brand#22"
+  },
+  "public.part.p_comment" : {
+    "1" : "the"
+  },
+  "public.part.p_container" : {
+    "-50" : "-UJgCrQi",
+    "-49" : "-UJgCrQi",
+    "-48" : "-UJgCrQi",
+    "-47" : "-UJgCrQi",
+    "-44" : "-UJgCrQi",
+    "-43" : "-UJgCrQi",
+    "-42" : "-UJgCrQi",
+    "-41" : "-UJgCrQi",
+    "1" : "WRAP DRUM",
+    "2" : "JUMBO CAN",
+    "40" : "MED PACK"
+  },
+  "public.part.p_mfgr" : {
+    "1" : "Manufacturer#1"
+  },
+  "public.part.p_name" : {
+    "1" : "almond smoke yellow deep dark",
+    "2" : "beige papaya almond yellow seashell",
+    "199997" : "deep magenta sandy cornflower linen"
+  },
+  "public.part.p_partkey" : {
+    "200000" : "167457"
+  },
+  "public.part.p_retailprice" : {
+    "1" : "1972.87"
+  },
+  "public.part.p_size" : {
+    "-33" : "0",
+    "1" : "41",
+    "2" : "7",
+    "3" : "10",
+    "4" : "34",
+    "5" : "2",
+    "6" : "1",
+    "7" : "28",
+    "8" : "29",
+    "9" : "12",
+    "50" : "18",
+    "70" : "51"
+  },
+  "public.part.p_type" : {
+    "-21" : "-yMmoIDbCFjfMBRKYYsfR",
+    "1" : "STANDARD ANODIZED NICKEL",
+    "2" : "MEDIUM PLATED STEEL",
+    "150" : "PROMO BURNISHED BRASS"
+  },
+  "public.partsupp.ps_availqty" : {
+    "1" : "1560"
+  },
+  "public.partsupp.ps_comment" : {
+    "1" : "y bold deposits. slyly idle deposits among the blithely even ideas sleep pendi"
+  },
+  "public.partsupp.ps_partkey" : {
+    "200000" : "168098"
+  },
+  "public.partsupp.ps_suppkey" : {
+    "10000" : "2055"
+  },
+  "public.partsupp.ps_supplycost" : {
+    "99901" : "532.61"
+  },
+  "public.region.r_comment" : {
+    "1" : "ges. thinly even pinto beans ca"
+  },
+  "public.region.r_name" : {
+    "1" : "AFRICA",
+    "2" : "AFRICA",
+    "3" : "AFRICA",
+    "5" : "ASIA"
+  },
+  "public.region.r_regionkey" : {
+    "5" : "2"
+  },
+  "public.supplier.s_acctbal" : {
+    "1" : "2709.8300001"
+  },
+  "public.supplier.s_address" : {
+    "1" : "y6FMC2poCxAqi"
+  },
+  "public.supplier.s_comment" : {
+    "1" : " about the blithely express foxes. bli",
+    "10000" : "are bold requests. pending, ironic packages wake around the deposi"
+  },
+  "public.supplier.s_name" : {
+    "1" : "Supplier#000009700"
+  },
+  "public.supplier.s_nationkey" : {
+    "25" : "6"
+  },
+  "public.supplier.s_phone" : {
+    "1" : "34-325-690-4941"
+  },
+  "public.supplier.s_suppkey" : {
+    "10000" : "2000"
+  }
+}

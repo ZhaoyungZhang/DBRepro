@@ -1,0 +1,45 @@
+{
+  "public.region.r_name" : [
+    [
+      95
+    ],
+    [
+      61
+    ],
+    [
+      107
+    ]
+  ],
+  "public.part.p_type" : [
+    [
+      110
+    ]
+  ],
+  "public.lineitem.l_returnflag" : [
+    [
+      1
+    ]
+  ],
+  "public.customer.c_mktsegment" : [
+    [
+      89
+    ]
+  ],
+  "public.orders.o_orderstatus" : [
+    [
+      69
+    ]
+  ],
+  "public.nation.n_name" : [
+    [
+      67
+    ],
+    [
+      4,
+      6
+    ],
+    [
+      65
+    ]
+  ]
+}

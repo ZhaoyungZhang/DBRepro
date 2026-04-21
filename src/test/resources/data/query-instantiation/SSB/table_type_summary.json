@@ -1,0 +1,34 @@
+{
+  "summary" : {
+    "totalTables" : 5,
+    "leafTableCount" : 0,
+    "intermediateTableCount" : 0,
+    "rootTableCount" : 0,
+    "normalTableCount" : 5
+  },
+  "intermediateTables" : { },
+  "rootTables" : { },
+  "leafTables" : { },
+  "normalTables" : {
+    "public.supplier" : {
+      "tableSize" : 2000,
+      "type" : "NORMAL"
+    },
+    "public.part" : {
+      "tableSize" : 200000,
+      "type" : "NORMAL"
+    },
+    "public.customer" : {
+      "tableSize" : 30000,
+      "type" : "NORMAL"
+    },
+    "public.dates" : {
+      "tableSize" : 2556,
+      "type" : "NORMAL"
+    },
+    "public.lineorder" : {
+      "tableSize" : 6001171,
+      "type" : "NORMAL"
+    }
+  }
+}

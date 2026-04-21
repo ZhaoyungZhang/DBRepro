@@ -1,0 +1,27 @@
+digraph "2_1.sql" {rankdir=BT;
+    subgraph "clusterd_datekey4" {
+            "Pkd_datekey4"[style=filled, color="#FFFFCC"];
+
+            "Fkd_datekey4"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+	"d_yearmonth = '#23'"[style=filled, color="#FFFFCC"];
+	"public.dates"[shape=box,style=filled, color="#FFFFCC"];
+	"public.dates"->"d_yearmonth = '#23'"[label="1.0"]
+	"d_yearmonth = '#23'"->"Pkd_datekey4"[label="0.0121"];
+	"(lo_discount >= '#24' and
+lo_quantity <= '#27' and
+lo_quantity >= '#26' and
+lo_discount <= '#25')"[style=filled, color="#CCFFFF"];
+	"public.lineorder"[shape=box,style=filled, color="#CCFFFF"];
+	"public.lineorder"->"(lo_discount >= '#24' and
+lo_quantity <= '#27' and
+lo_quantity >= '#26' and
+lo_discount <= '#25')"[label="1.0"]
+	"(lo_discount >= '#24' and
+lo_quantity <= '#27' and
+lo_quantity >= '#26' and
+lo_discount <= '#25')"->"Fkd_datekey4"[label="0.0546"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"Fkd_datekey4"->RESULT[label="0.0131"]
+}

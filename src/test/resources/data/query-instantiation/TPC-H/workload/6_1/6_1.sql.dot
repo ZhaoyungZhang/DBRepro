@@ -1,0 +1,19 @@
+digraph "6_1.sql" {rankdir=BT;
+	"(l_shipdate >= '#97' and
+l_quantity < '#101' and
+l_discount <= '#100' and
+l_discount >= '#99' and
+l_shipdate < '#98')"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"(l_shipdate >= '#97' and
+l_quantity < '#101' and
+l_discount <= '#100' and
+l_discount >= '#99' and
+l_shipdate < '#98')"[label="1.0"]
+	RESULT[style=filled, color="#FFFFCC"];
+	"(l_shipdate >= '#97' and
+l_quantity < '#101' and
+l_discount <= '#100' and
+l_discount >= '#99' and
+l_shipdate < '#98')"->RESULT[label="0.0190"]
+}

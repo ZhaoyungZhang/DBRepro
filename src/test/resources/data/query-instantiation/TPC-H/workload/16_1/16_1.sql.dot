@@ -1,0 +1,33 @@
+digraph "16_1.sql" {rankdir=BT;
+    subgraph "clusterp_partkey0" {
+            "Pkp_partkey0"[style=filled, color="#FFFFCC"];
+
+            "Fkp_partkey0"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey2" {
+            "Pks_suppkey2"[style=filled, color="#FFCCCC"];
+
+            "Fks_suppkey2"[style=filled, color="#CCFFFF"];
+label="anti join";labelloc=b;
+    }
+	"(p_brand <> '#20' and
+p_size in ('#22','#23','#24','#25','#26','#27','#28','#29') and
+p_type not like '#21')"[style=filled, color="#FFFFCC"];
+	"public.part"[shape=box,style=filled, color="#FFFFCC"];
+	"public.part"->"(p_brand <> '#20' and
+p_size in ('#22','#23','#24','#25','#26','#27','#28','#29') and
+p_type not like '#21')"[label="1.0"]
+	"(p_brand <> '#20' and
+p_size in ('#22','#23','#24','#25','#26','#27','#28','#29') and
+p_type not like '#21')"->"Pkp_partkey0"[label="0.1483"];
+	"public.partsupp"[shape=box,style=filled, color="#CCFFFF"];
+	"public.partsupp"->"Fks_suppkey2"[label="1.0"]
+	"Fks_suppkey2"->"Fkp_partkey0"[label="0.9996"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"Fkp_partkey0"->RESULT[label="0.1483"]
+	"s_comment like '#19'"[style=filled, color="#FFCCCC"];
+	"public.supplier"[shape=box,style=filled, color="#FFCCCC"];
+	"public.supplier"->"s_comment like '#19'"[label="1.0"]
+	"s_comment like '#19'"->"Pks_suppkey2"[label="0.0004"];
+}

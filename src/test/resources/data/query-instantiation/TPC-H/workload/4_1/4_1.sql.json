@@ -1,0 +1,112 @@
+{
+  "4_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 91,
+                        "data" : 2313,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GE",
+                    "probability" : 0.038316,
+                    "canonicalColumnName" : "public.orders.o_orderdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 92,
+                        "data" : 2426,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LT",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.orders.o_orderdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.038316
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "o_orderkey"
+          ],
+          "pkTag" : 3
+        }
+      ],
+      "tableName" : "public.orders"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "parameters" : [
+                  {
+                    "id" : 90,
+                    "data" : -27000000,
+                    "type" : "ACTUAL",
+                    "substringStart" : -1,
+                    "substringLength" : -1
+                  }
+                ],
+                "operator" : "LT",
+                "probability" : 0.6320880021,
+                "arithmeticTree" : {
+                  "leftNode" : {
+                    "type" : "COLUMN",
+                    "canonicalColumnName" : "public.lineitem.l_commitdate"
+                  },
+                  "rightNode" : {
+                    "type" : "COLUMN",
+                    "canonicalColumnName" : "public.lineitem.l_receiptdate"
+                  },
+                  "type" : "MINUS"
+                },
+                "allCanonicalColumnNames" : [
+                  "public.lineitem.l_receiptdate",
+                  "public.lineitem.l_commitdate"
+                ],
+                "type" : "MULTI_FILTER_OPERATION"
+              }
+            ]
+          },
+          "probability" : 0.6320880021
+        },
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.orders.o_orderkey",
+          "localCols" : "public.lineitem.l_orderkey",
+          "pkTag" : 3,
+          "probability" : 0.013899258,
+          "pkDistinctProbability" : 0.013899258,
+          "type" : "SEMI_JOIN"
+        }
+      ],
+      "tableName" : "public.lineitem"
+    }
+  ]
+}

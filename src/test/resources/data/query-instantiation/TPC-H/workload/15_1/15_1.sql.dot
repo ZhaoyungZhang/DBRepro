@@ -1,0 +1,12 @@
+digraph "15_1.sql" {rankdir=BT;
+	"(l_shipdate >= '#17' and
+l_shipdate < '#18')"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"(l_shipdate >= '#17' and
+l_shipdate < '#18')"[label="1.0"]
+	"GroupKey:public.lineitem.l_suppkey"[style=filled, color="#FFFFCC"];
+	"(l_shipdate >= '#17' and
+l_shipdate < '#18')"->"GroupKey:public.lineitem.l_suppkey"[label="0.0384"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"GroupKey:public.lineitem.l_suppkey"->RESULT[label="0.0434"]
+}

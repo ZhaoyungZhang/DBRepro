@@ -1,0 +1,145 @@
+{
+  "public.dates.d_year" : {
+    "1992" : {
+      "selectivity" : "0.14319248",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "1993" : {
+      "selectivity" : "0.1428012519",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "1998" : {
+      "selectivity" : "0.0027386541",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "1996" : {
+      "selectivity" : "0.2852112676",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.customer.c_nation" : {
+    "UNITED STATES" : {
+      "selectivity" : "0.042",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.customer.c_region" : {
+    "AMERICA" : {
+      "selectivity" : "0.1997333333",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "ASIA" : {
+      "selectivity" : "0.2017",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.customer.c_city" : {
+    "IRAN     4" : {
+      "selectivity" : "0.0086333333",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.supplier.s_city" : {
+    "INDONESIA4" : {
+      "selectivity" : "0.0095",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.part.p_brand" : {
+    "MFGR#5486" : {
+      "selectivity" : "0.00792",
+      "operator" : "GE",
+      "constraintType" : "ADD_MCV"
+    },
+    "MFGR#1536" : {
+      "selectivity" : "0.00108",
+      "operator" : "EQ",
+      "constraintType" : "ADD_MCV"
+    }
+  },
+  "public.part.p_mfgr" : {
+    "MFGR#3" : {
+      "selectivity" : "0.400225",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.lineorder.lo_discount" : {
+    "10" : {
+      "selectivity" : "0.0546653311",
+      "operator" : "GE",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "9" : {
+      "selectivity" : "0.1309646067",
+      "operator" : "GE",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.dates.d_weeknuminyear" : {
+    "53" : {
+      "selectivity" : "0.0027386541",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.supplier.s_nation" : {
+    "UNITED STATES" : {
+      "selectivity" : "0.038",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.supplier.s_region" : {
+    "AMERICA" : {
+      "selectivity" : "0.189",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "EUROPE" : {
+      "selectivity" : "0.19",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "ASIA" : {
+      "selectivity" : "0.2245",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.dates.d_yearmonth" : {
+    "Aug1992" : {
+      "selectivity" : "0.0121283255",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.lineorder.lo_quantity" : {
+    "39" : {
+      "selectivity" : "0.0070",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  },
+  "public.part.p_category" : {
+    "MFGR#15" : {
+      "selectivity" : "0.039415",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    },
+    "MFGR#43" : {
+      "selectivity" : "0.040145",
+      "operator" : "EQ",
+      "constraintType" : "UPDATE_MCV"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "public.dates.d_year" : [
+    [
+      0
+    ]
+  ],
+  "public.part.p_brand" : [
+    [
+      40
+    ]
+  ],
+  "public.customer.c_nation" : [
+    [
+      45
+    ]
+  ],
+  "public.supplier.s_nation" : [
+    [
+      20,
+      46
+    ]
+  ],
+  "public.supplier.s_region" : [
+    [
+      39
+    ],
+    [
+      10,
+      14,
+      34
+    ],
+    [
+      36,
+      41
+    ]
+  ],
+  "public.customer.c_region" : [
+    [
+      9,
+      13
+    ],
+    [
+      42
+    ]
+  ],
+  "public.dates.d_yearmonth" : [
+    [
+      23
+    ],
+    [
+      8
+    ]
+  ],
+  "public.part.p_category" : [
+    [
+      35
+    ],
+    [
+      19
+    ]
+  ]
+}

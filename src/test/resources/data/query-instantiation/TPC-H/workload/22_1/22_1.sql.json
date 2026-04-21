@@ -1,0 +1,131 @@
+{
+  "22_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 70,
+                        "data" : -1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GT",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.customer.c_acctbal",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 71,
+                        "data" : 8,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 72,
+                        "data" : 9,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 73,
+                        "data" : 10,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 74,
+                        "data" : 11,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 75,
+                        "data" : 12,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 76,
+                        "data" : 13,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      },
+                      {
+                        "id" : 77,
+                        "data" : 14,
+                        "type" : "SUBSTRING",
+                        "substringStart" : 1,
+                        "substringLength" : 2
+                      }
+                    ],
+                    "operator" : "IN",
+                    "probability" : 0.2555866666,
+                    "canonicalColumnName" : "public.customer.c_phone",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.2555866666
+        },
+        {
+          "constraintChainNodeType" : "AGGREGATE",
+          "aggProbability" : 0.0000260837,
+          "aggFilter" : {
+            "constraintChainNodeType" : "FILTER",
+            "root" : {
+              "type" : "AND",
+              "children" : [
+                {
+                  "parameters" : [
+                    {
+                      "id" : 78,
+                      "data" : -1,
+                      "type" : "VIRTUAL",
+                      "substringStart" : -1,
+                      "substringLength" : -1
+                    }
+                  ],
+                  "operator" : "EQ",
+                  "arithmeticTree" : {
+                    "leftNode" : {
+                      "type" : "COLUMN",
+                      "canonicalColumnName" : "public.customer.c_acctbal"
+                    },
+                    "type" : "AVG"
+                  },
+                  "allCanonicalColumnNames" : [
+                    "public.customer.c_acctbal"
+                  ],
+                  "type" : "MULTI_FILTER_OPERATION"
+                }
+              ]
+            },
+            "probability" : 0.0000260837
+          }
+        }
+      ],
+      "tableName" : "public.customer"
+    }
+  ]
+}

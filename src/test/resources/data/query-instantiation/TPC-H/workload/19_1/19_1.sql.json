@@ -1,0 +1,437 @@
+{
+  "19_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 52,
+                        "data" : 3,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      },
+                      {
+                        "id" : 53,
+                        "data" : 3,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "IN",
+                    "probability" : 0.0192417702,
+                    "canonicalColumnName" : "public.lineitem.l_shipmode",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "type" : "OR",
+                    "children" : [
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 55,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "GE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 56,
+                                "data" : 4921,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      },
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 59,
+                                "data" : 4921,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "GE",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 60,
+                                "data" : 4921,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      },
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 57,
+                                "data" : 4921,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "GE",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 58,
+                                "data" : 4921,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.lineitem.l_quantity",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 54,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "EQ",
+                    "probability" : 0.0192417702,
+                    "canonicalColumnName" : "public.lineitem.l_shipinstruct",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.0192417702
+        },
+        {
+          "constraintChainNodeType" : "FK_JOIN",
+          "refCols" : "public.part.p_partkey",
+          "localCols" : "public.lineitem.l_partkey",
+          "pkTag" : 2,
+          "probability" : 0.001030535,
+          "type" : "INNER_JOIN"
+        }
+      ],
+      "tableName" : "public.lineitem"
+    },
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 33,
+                        "data" : -1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GE",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.part.p_size",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "type" : "OR",
+                    "children" : [
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 34,
+                                "data" : 2,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "EQ",
+                            "probability" : 0.00243,
+                            "canonicalColumnName" : "public.part.p_brand",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 39,
+                                "data" : 70,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.part.p_size",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 35,
+                                "data" : 2,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 36,
+                                "data" : 2,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 37,
+                                "data" : 2,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 38,
+                                "data" : 2,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "IN",
+                            "probability" : 0.00243,
+                            "canonicalColumnName" : "public.part.p_container",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      },
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 46,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "EQ",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.part.p_brand",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 51,
+                                "data" : 70,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.part.p_size",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 47,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 48,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 49,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 50,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "IN",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.part.p_container",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      },
+                      {
+                        "type" : "AND",
+                        "children" : [
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 40,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "EQ",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.part.p_brand",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 45,
+                                "data" : 70,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "LE",
+                            "probability" : 1,
+                            "canonicalColumnName" : "public.part.p_size",
+                            "type" : "UNI_FILTER_OPERATION"
+                          },
+                          {
+                            "parameters" : [
+                              {
+                                "id" : 41,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 42,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 43,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              },
+                              {
+                                "id" : 44,
+                                "data" : -1,
+                                "type" : "ACTUAL",
+                                "substringStart" : -1,
+                                "substringLength" : -1
+                              }
+                            ],
+                            "operator" : "IN",
+                            "probability" : 0,
+                            "canonicalColumnName" : "public.part.p_container",
+                            "type" : "UNI_FILTER_OPERATION"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.00243
+        },
+        {
+          "constraintChainNodeType" : "PK_JOIN",
+          "pkColumns" : [
+            "p_partkey"
+          ],
+          "pkTag" : 2
+        }
+      ],
+      "tableName" : "public.part"
+    }
+  ]
+}

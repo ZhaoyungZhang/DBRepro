@@ -1,0 +1,30 @@
+digraph "5_1.sql" {rankdir=BT;
+    subgraph "clusterp_partkey4" {
+            "Pkp_partkey4"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey4"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey5" {
+            "Pks_suppkey5"[style=filled, color="#FFCCCC"];
+
+            "Fks_suppkey5"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+	"public.lineorder"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineorder"->"Fkp_partkey4"[label="1.0"]
+	"Fkp_partkey4"->"Fks_suppkey5"[label="0.0079"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"Fks_suppkey5"->RESULT[label="0.2229"]
+	"(p_brand >= '#37' and
+p_brand <= '#38')"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"(p_brand >= '#37' and
+p_brand <= '#38')"[label="1.0"]
+	"(p_brand >= '#37' and
+p_brand <= '#38')"->"Pkp_partkey4"[label="0.0079"];
+	"s_region = '#36'"[style=filled, color="#FFCCCC"];
+	"public.supplier"[shape=box,style=filled, color="#FFCCCC"];
+	"public.supplier"->"s_region = '#36'"[label="1.0"]
+	"s_region = '#36'"->"Pks_suppkey5"[label="0.2245"];
+}

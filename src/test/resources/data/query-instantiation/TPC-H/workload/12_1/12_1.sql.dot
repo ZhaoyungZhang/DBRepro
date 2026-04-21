@@ -1,0 +1,19 @@
+digraph "12_1.sql" {rankdir=BT;
+	"(l_shipmode in ('#8','#9') and
+l_receiptdate < '#13' and
+l_receiptdate >= '#12' and
+public.lineitem.l_shipdate - public.lineitem.l_commitdate < #11 and
+public.lineitem.l_commitdate - public.lineitem.l_receiptdate < #10)"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"(l_shipmode in ('#8','#9') and
+l_receiptdate < '#13' and
+l_receiptdate >= '#12' and
+public.lineitem.l_shipdate - public.lineitem.l_commitdate < #11 and
+public.lineitem.l_commitdate - public.lineitem.l_receiptdate < #10)"[label="1.0"]
+	RESULT[style=filled, color="#FFFFCC"];
+	"(l_shipmode in ('#8','#9') and
+l_receiptdate < '#13' and
+l_receiptdate >= '#12' and
+public.lineitem.l_shipdate - public.lineitem.l_commitdate < #11 and
+public.lineitem.l_commitdate - public.lineitem.l_receiptdate < #10)"->RESULT[label="0.0051"]
+}

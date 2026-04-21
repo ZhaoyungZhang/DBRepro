@@ -1,0 +1,217 @@
+{
+  "public.customer.c_address" : {
+    "30000" : "8RUcTbyRF4A3"
+  },
+  "public.customer.c_city" : {
+    "-52" : "-pYaOCMmbD",
+    "-8" : "-pYaOCMmbD",
+    "1" : "IRAN     4",
+    "2" : "IRAN     4",
+    "250" : "EGYPT    1"
+  },
+  "public.customer.c_custkey" : {
+    "30000" : "4800"
+  },
+  "public.customer.c_mktsegment" : {
+    "5" : "FURNITURE"
+  },
+  "public.customer.c_name" : {
+    "30000" : "Customer#000004800"
+  },
+  "public.customer.c_nation" : {
+    "1" : "UNITED STATES",
+    "25" : "ETHIOPIA"
+  },
+  "public.customer.c_phone" : {
+    "30000" : "14-135-259-5125"
+  },
+  "public.customer.c_region" : {
+    "1" : "AMERICA",
+    "2" : "ASIA",
+    "5" : "ASIA"
+  },
+  "public.dates.d_date" : {
+    "2556" : "Octorber 25, 1992"
+  },
+  "public.dates.d_datekey" : {
+    "2556" : "19980226"
+  },
+  "public.dates.d_daynuminmonth" : {
+    "31" : "7"
+  },
+  "public.dates.d_daynuminweek" : {
+    "7" : "4"
+  },
+  "public.dates.d_daynuminyear" : {
+    "366" : "116"
+  },
+  "public.dates.d_dayofweek" : {
+    "7" : "Sunday"
+  },
+  "public.dates.d_holidayfl" : {
+    "2" : "1"
+  },
+  "public.dates.d_lastdayinmonthfl" : {
+    "2" : "1"
+  },
+  "public.dates.d_lastdayinweekfl" : {
+    "2" : "1"
+  },
+  "public.dates.d_month" : {
+    "12" : "June"
+  },
+  "public.dates.d_monthnuminyear" : {
+    "12" : "7"
+  },
+  "public.dates.d_sellingseason" : {
+    "5" : "Spring"
+  },
+  "public.dates.d_weekdayfl" : {
+    "2" : "1"
+  },
+  "public.dates.d_weeknuminyear" : {
+    "1" : "53",
+    "53" : "36"
+  },
+  "public.dates.d_year" : {
+    "-22" : "1991",
+    "-18" : "1991",
+    "1" : "1998",
+    "2" : "1993",
+    "3" : "1993",
+    "4" : "1996",
+    "7" : "1995",
+    "27" : "2019"
+  },
+  "public.dates.d_yearmonth" : {
+    "1" : "Aug1992",
+    "2" : "Aug1992",
+    "84" : "Dec1994"
+  },
+  "public.dates.d_yearmonthnum" : {
+    "84" : "199305"
+  },
+  "public.lineorder.lo_commitdate" : {
+    "2466" : "19930221"
+  },
+  "public.lineorder.lo_custkey" : {
+    "20000" : "5005"
+  },
+  "public.lineorder.lo_discount" : {
+    "7" : "9",
+    "9" : "10",
+    "10" : "10",
+    "11" : "9",
+    "31" : "31"
+  },
+  "public.lineorder.lo_extendedprice" : {
+    "934015" : "9174100"
+  },
+  "public.lineorder.lo_linenumber" : {
+    "7" : "4"
+  },
+  "public.lineorder.lo_orderdate" : {
+    "2406" : "19970122"
+  },
+  "public.lineorder.lo_orderkey" : {
+    "1500000" : "3171367"
+  },
+  "public.lineorder.lo_orderpriotity" : {
+    "5" : "3-MEDIUM"
+  },
+  "public.lineorder.lo_ordtotalprice" : {
+    "1464612" : "5721935"
+  },
+  "public.lineorder.lo_partkey" : {
+    "200000" : "168222"
+  },
+  "public.lineorder.lo_quantity" : {
+    "-32" : "0",
+    "-26" : "0",
+    "50" : "18",
+    "70" : "39"
+  },
+  "public.lineorder.lo_revenue" : {
+    "3345588" : "4519012"
+  },
+  "public.lineorder.lo_shipmode" : {
+    "7" : "RAIL"
+  },
+  "public.lineorder.lo_shippriotity" : {
+    "1" : "0"
+  },
+  "public.lineorder.lo_suppkey" : {
+    "2000" : "1440"
+  },
+  "public.lineorder.lo_supplycost" : {
+    "12939" : "88224"
+  },
+  "public.lineorder.lo_tax" : {
+    "9" : "1"
+  },
+  "public.part.p_brand" : {
+    "991" : "MFGR#5486",
+    "992" : "MFGR#1536",
+    "1000" : "MFGR#3510",
+    "1020" : "MFGR#5541"
+  },
+  "public.part.p_category" : {
+    "1" : "MFGR#15",
+    "2" : "MFGR#43",
+    "25" : "MFGR#22"
+  },
+  "public.part.p_color" : {
+    "92" : "lime"
+  },
+  "public.part.p_container" : {
+    "40" : "MED PACK"
+  },
+  "public.part.p_mfgr" : {
+    "-16" : "-jVGmX",
+    "-12" : "-jVGmX",
+    "1" : "MFGR#3",
+    "5" : "MFGR#3"
+  },
+  "public.part.p_name" : {
+    "8372" : "ghost black"
+  },
+  "public.part.p_partkey" : {
+    "200000" : "167722"
+  },
+  "public.part.p_size" : {
+    "50" : "18"
+  },
+  "public.part.p_type" : {
+    "150" : "SMALL ANODIZED NICKEL"
+  },
+  "public.supplier.s_address" : {
+    "2000" : "baQwz n3D2"
+  },
+  "public.supplier.s_city" : {
+    "-50" : "-DMJkQqtWg",
+    "-6" : "-DMJkQqtWg",
+    "1" : "INDONESIA4",
+    "2" : "INDONESIA4",
+    "250" : "EGYPT    0"
+  },
+  "public.supplier.s_name" : {
+    "2000" : "Supplier#000001260"
+  },
+  "public.supplier.s_nation" : {
+    "1" : "UNITED STATES",
+    "2" : "GERMANY",
+    "25" : "ETHIOPIA"
+  },
+  "public.supplier.s_phone" : {
+    "2000" : "25-802-131-7180"
+  },
+  "public.supplier.s_region" : {
+    "1" : "AMERICA",
+    "2" : "EUROPE",
+    "3" : "ASIA",
+    "5" : "ASIA"
+  },
+  "public.supplier.s_suppkey" : {
+    "2000" : "1260"
+  }
+}

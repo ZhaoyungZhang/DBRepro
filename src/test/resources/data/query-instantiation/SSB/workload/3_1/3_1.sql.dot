@@ -1,0 +1,30 @@
+digraph "3_1.sql" {rankdir=BT;
+    subgraph "clusterd_datekey5" {
+            "Pkd_datekey5"[style=filled, color="#FFFFCC"];
+
+            "Fkd_datekey5"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+	"(d_weeknuminyear = '#28' and
+d_year = '#29')"[style=filled, color="#FFFFCC"];
+	"public.dates"[shape=box,style=filled, color="#FFFFCC"];
+	"public.dates"->"(d_weeknuminyear = '#28' and
+d_year = '#29')"[label="1.0"]
+	"(d_weeknuminyear = '#28' and
+d_year = '#29')"->"Pkd_datekey5"[label="0.0027"];
+	"(lo_discount >= '#30' and
+lo_quantity <= '#33' and
+lo_quantity >= '#32' and
+lo_discount <= '#31')"[style=filled, color="#CCFFFF"];
+	"public.lineorder"[shape=box,style=filled, color="#CCFFFF"];
+	"public.lineorder"->"(lo_discount >= '#30' and
+lo_quantity <= '#33' and
+lo_quantity >= '#32' and
+lo_discount <= '#31')"[label="1.0"]
+	"(lo_discount >= '#30' and
+lo_quantity <= '#33' and
+lo_quantity >= '#32' and
+lo_discount <= '#31')"->"Fkd_datekey5"[label="0.0547"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"Fkd_datekey5"->RESULT[label="0.0028"]
+}

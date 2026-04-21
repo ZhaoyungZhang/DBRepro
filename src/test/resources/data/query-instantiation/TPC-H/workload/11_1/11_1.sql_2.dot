@@ -1,0 +1,29 @@
+digraph "11_1.sql_2" {rankdir=BT;
+    subgraph "clustern_nationkey1" {
+            "Pkn_nationkey1"[style=filled, color="#FFFFCC"];
+
+            "Fkn_nationkey1"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey1" {
+            "Pks_suppkey1"[style=filled, color="#FFCCCC"];
+
+            "Fks_suppkey1"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+	"n_name = '#6'"[style=filled, color="#FFFFCC"];
+	"public.nation"[shape=box,style=filled, color="#FFFFCC"];
+	"public.nation"->"n_name = '#6'"[label="1.0"]
+	"n_name = '#6'"->"Pkn_nationkey1"[label="0.0400"];
+	"public.partsupp"[shape=box,style=filled, color="#CCFFFF"];
+	"public.partsupp"->"Fks_suppkey1"[label="1.0"]
+	"GroupKey:public.partsupp.ps_partkey"[style=filled, color="#CCFFFF"];
+	"Fks_suppkey1"->"GroupKey:public.partsupp.ps_partkey"[label="0.0406"];
+	"sum(public.partsupp.ps_supplycost) > #7"[style=filled, color="#CCFFFF"];
+	"GroupKey:public.partsupp.ps_partkey"->"sum(public.partsupp.ps_supplycost) > #7"[label="0.9443"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"sum(public.partsupp.ps_supplycost) > #7"->RESULT[label="0.0258"]
+	"public.supplier"[shape=box,style=filled, color="#FFCCCC"];
+	"public.supplier"->"Fkn_nationkey1"[label="1.0"]
+	"Fkn_nationkey1"->"Pks_suppkey1"[label="0.0406"];
+}

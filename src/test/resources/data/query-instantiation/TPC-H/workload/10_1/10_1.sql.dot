@@ -1,0 +1,21 @@
+digraph "10_1.sql" {rankdir=BT;
+    subgraph "clustero_orderkey0" {
+            "Pko_orderkey0"[style=filled, color="#CCFFFF"];
+
+            "Fko_orderkey0"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+	"l_returnflag = '#3'"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"l_returnflag = '#3'"[label="1.0"]
+	"l_returnflag = '#3'"->"Fko_orderkey0"[label="0.2464"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"Fko_orderkey0"->RESULT[label="0.0764"]
+	"(o_orderdate >= '#1' and
+o_orderdate < '#2')"[style=filled, color="#CCFFFF"];
+	"public.orders"[shape=box,style=filled, color="#CCFFFF"];
+	"public.orders"->"(o_orderdate >= '#1' and
+o_orderdate < '#2')"[label="1.0"]
+	"(o_orderdate >= '#1' and
+o_orderdate < '#2')"->"Pko_orderkey0"[label="0.0377"];
+}

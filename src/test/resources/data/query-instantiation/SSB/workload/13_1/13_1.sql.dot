@@ -1,0 +1,41 @@
+digraph "13_1.sql" {rankdir=BT;
+    subgraph "clusterd_datekey3" {
+            "Pkd_datekey3"[style=filled, color="#FFFFCC"];
+
+            "Fkd_datekey3"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterp_partkey2" {
+            "Pkp_partkey2"[style=filled, color="#FFCCCC"];
+
+            "Fkp_partkey2"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey3" {
+            "Pks_suppkey3"[style=filled, color="#FFFFCC"];
+
+            "Fks_suppkey3"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+	"(d_year = '#21' or
+d_year = '#22')"[style=filled, color="#FFFFCC"];
+	"public.dates"[shape=box,style=filled, color="#FFFFCC"];
+	"public.dates"->"(d_year = '#21' or
+d_year = '#22')"[label="1.0"]
+	"(d_year = '#21' or
+d_year = '#22')"->"Pkd_datekey3"[label="0.2852"];
+	"public.lineorder"[shape=box,style=filled, color="#CCFFFF"];
+	"public.lineorder"->"Fks_suppkey3"[label="1.0"]
+	"Fks_suppkey3"->"Fkp_partkey2"[label="0.0381"];
+	"Fkp_partkey2"->"Fkd_datekey3"[label="0.0405"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"Fkd_datekey3"->RESULT[label="0.2350"]
+	"p_category = '#19'"[style=filled, color="#FFCCCC"];
+	"public.part"[shape=box,style=filled, color="#FFCCCC"];
+	"public.part"->"p_category = '#19'"[label="1.0"]
+	"p_category = '#19'"->"Pkp_partkey2"[label="0.0401"];
+	"s_nation = '#20'"[style=filled, color="#FFFFCC"];
+	"public.supplier"[shape=box,style=filled, color="#FFFFCC"];
+	"public.supplier"->"s_nation = '#20'"[label="1.0"]
+	"s_nation = '#20'"->"Pks_suppkey3"[label="0.0380"];
+}

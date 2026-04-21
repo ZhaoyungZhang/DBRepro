@@ -1,0 +1,52 @@
+digraph "2_1.sql" {rankdir=BT;
+    subgraph "clustern_nationkey2" {
+            "Pkn_nationkey2"[style=filled, color="#FFFFCC"];
+
+            "Fkn_nationkey2"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterp_partkey3" {
+            "Pkp_partkey3"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey3"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterr_regionkey0" {
+            "Pkr_regionkey0"[style=filled, color="#FFFFCC"];
+
+            "Fkr_regionkey0"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey3" {
+            "Pks_suppkey3"[style=filled, color="#CCFFFF"];
+
+            "Fks_suppkey3"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+	"public.nation"[shape=box,style=filled, color="#FFFFCC"];
+	"public.nation"->"Fkr_regionkey0"[label="1.0"]
+	"Fkr_regionkey0"->"Pkn_nationkey2"[label="0.2000"];
+	"(p_type like '#61' and
+p_size = '#62')"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"(p_type like '#61' and
+p_size = '#62')"[label="1.0"]
+	"(p_type like '#61' and
+p_size = '#62')"->"Pkp_partkey3"[label="0.0042"];
+	"public.partsupp"[shape=box,style=filled, color="#FFCCCC"];
+	"public.partsupp"->"Fks_suppkey3"[label="1.0"]
+	"Fks_suppkey3"->"Fkp_partkey3"[label="0.2036"];
+	"GroupKey:public.partsupp.ps_partkey"[style=filled, color="#FFCCCC"];
+	"Fkp_partkey3"->"GroupKey:public.partsupp.ps_partkey"[label="0.0042"];
+	"public.partsupp.ps_supplycost - min(public.partsupp.ps_supplycost) <= #64"[style=filled, color="#FFCCCC"];
+	"GroupKey:public.partsupp.ps_partkey"->"public.partsupp.ps_supplycost - min(public.partsupp.ps_supplycost) <= #64"[label="0.7323"];
+	RESULT[style=filled, color="#FFCCCC"];
+	"public.partsupp.ps_supplycost - min(public.partsupp.ps_supplycost) <= #64"->RESULT[label="0.7323"]
+	"r_name = '#63'"[style=filled, color="#FFFFCC"];
+	"public.region"[shape=box,style=filled, color="#FFFFCC"];
+	"public.region"->"r_name = '#63'"[label="1.0"]
+	"r_name = '#63'"->"Pkr_regionkey0"[label="0.2000"];
+	"public.supplier"[shape=box,style=filled, color="#CCFFFF"];
+	"public.supplier"->"Fkn_nationkey2"[label="1.0"]
+	"Fkn_nationkey2"->"Pks_suppkey3"[label="0.2036"];
+}

@@ -1,0 +1,66 @@
+digraph "19_1.sql" {rankdir=BT;
+    subgraph "clusterp_partkey2" {
+            "Pkp_partkey2"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey2"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+	"(l_shipmode in ('#52','#53') and
+((l_quantity >= '#55' and
+l_quantity <= '#56') or
+(l_quantity >= '#59' and
+l_quantity <= '#60') or
+(l_quantity >= '#57' and
+l_quantity <= '#58')) and
+l_shipinstruct = '#54')"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"(l_shipmode in ('#52','#53') and
+((l_quantity >= '#55' and
+l_quantity <= '#56') or
+(l_quantity >= '#59' and
+l_quantity <= '#60') or
+(l_quantity >= '#57' and
+l_quantity <= '#58')) and
+l_shipinstruct = '#54')"[label="1.0"]
+	"(l_shipmode in ('#52','#53') and
+((l_quantity >= '#55' and
+l_quantity <= '#56') or
+(l_quantity >= '#59' and
+l_quantity <= '#60') or
+(l_quantity >= '#57' and
+l_quantity <= '#58')) and
+l_shipinstruct = '#54')"->"Fkp_partkey2"[label="0.0192"];
+	RESULT[style=filled, color="#FFFFCC"];
+	"Fkp_partkey2"->RESULT[label="0.0010"]
+	"(p_size >= '#33' and
+((p_brand = '#34' and
+p_size <= '#39' and
+p_container in ('#35','#36','#37','#38')) or
+(p_brand = '#46' and
+p_size <= '#51' and
+p_container in ('#47','#48','#49','#50')) or
+(p_brand = '#40' and
+p_size <= '#45' and
+p_container in ('#41','#42','#43','#44'))))"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"(p_size >= '#33' and
+((p_brand = '#34' and
+p_size <= '#39' and
+p_container in ('#35','#36','#37','#38')) or
+(p_brand = '#46' and
+p_size <= '#51' and
+p_container in ('#47','#48','#49','#50')) or
+(p_brand = '#40' and
+p_size <= '#45' and
+p_container in ('#41','#42','#43','#44'))))"[label="1.0"]
+	"(p_size >= '#33' and
+((p_brand = '#34' and
+p_size <= '#39' and
+p_container in ('#35','#36','#37','#38')) or
+(p_brand = '#46' and
+p_size <= '#51' and
+p_container in ('#47','#48','#49','#50')) or
+(p_brand = '#40' and
+p_size <= '#45' and
+p_container in ('#41','#42','#43','#44'))))"->"Pkp_partkey2"[label="0.0024"];
+}

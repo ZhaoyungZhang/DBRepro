@@ -1,0 +1,69 @@
+# === Java / Maven Build ===
+target/
+*.class
+*.war
+*.ear
+
+# === IDE Configs ===
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.log
+nohup.out
+
+# === System Files ===
+.DS_Store
+Thumbs.db
+
+# === Python Bytecode ===
+__pycache__/
+*.py[cod]
+
+# === Scripts Cache ===
+*.tar.gz
+
+# === Experimental Outputs ===
+experiments/
+mirage_raw_test/
+
+
+# === TPCH Output ===
+result_tpch*/
+validation_result_tpch*/
+*.tbl
+
+# === Custom Configs (Optional to ignore) ===
+# conf/*.json
+
+# === Technical and Markdown Artifacts ===
+tree.txt
+technical-report.pdf
+RSGen.md
+Reversing\ statistics\ for\ scalable\ test\ databases\ generation.pdf
+
+# === Build Artifacts / Temp Files ===
+*.tmp
+*.bak
+*.swp
+*~
+*.png
+
+# === Logs and Benchmarking Data ===
+**/generate.log
+**/prepare.log
+**/instantiate.log
+**/create.log
+
+*.history
+
+unused_files/*
+
+KingbaseES_V009R001C001B0030PSC001_JDBC.zip
+
+rsgen-release-*
+rsgen-release-*/
+rsgen-release/*
+Hydra0.1/*
+mirage_raw_test/

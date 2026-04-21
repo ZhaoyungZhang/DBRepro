@@ -1,0 +1,53 @@
+{
+  "14_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 15,
+                        "data" : 2492,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GE",
+                    "probability" : 0.0125484589,
+                    "canonicalColumnName" : "public.lineitem.l_shipdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 16,
+                        "data" : 2546,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LT",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.lineitem.l_shipdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.0125484589
+        }
+      ],
+      "tableName" : "public.lineitem"
+    }
+  ]
+}

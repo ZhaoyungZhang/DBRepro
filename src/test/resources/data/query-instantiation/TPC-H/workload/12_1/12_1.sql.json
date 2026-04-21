@@ -1,0 +1,133 @@
+{
+  "12_1.sql" : [
+    {
+      "nodes" : [
+        {
+          "constraintChainNodeType" : "FILTER",
+          "root" : {
+            "type" : "AND",
+            "children" : [
+              {
+                "type" : "AND",
+                "children" : [
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 8,
+                        "data" : 1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      },
+                      {
+                        "id" : 9,
+                        "data" : 2,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "IN",
+                    "probability" : 0.0051384594,
+                    "canonicalColumnName" : "public.lineitem.l_shipmode",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 13,
+                        "data" : 2574,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LT",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.lineitem.l_receiptdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 12,
+                        "data" : -1,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "GE",
+                    "probability" : 1,
+                    "canonicalColumnName" : "public.lineitem.l_receiptdate",
+                    "type" : "UNI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 11,
+                        "data" : 259000000,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LT",
+                    "probability" : 1,
+                    "arithmeticTree" : {
+                      "leftNode" : {
+                        "type" : "COLUMN",
+                        "canonicalColumnName" : "public.lineitem.l_shipdate"
+                      },
+                      "rightNode" : {
+                        "type" : "COLUMN",
+                        "canonicalColumnName" : "public.lineitem.l_commitdate"
+                      },
+                      "type" : "MINUS"
+                    },
+                    "allCanonicalColumnNames" : [
+                      "public.lineitem.l_commitdate",
+                      "public.lineitem.l_shipdate"
+                    ],
+                    "type" : "MULTI_FILTER_OPERATION"
+                  },
+                  {
+                    "parameters" : [
+                      {
+                        "id" : 10,
+                        "data" : 70000000,
+                        "type" : "ACTUAL",
+                        "substringStart" : -1,
+                        "substringLength" : -1
+                      }
+                    ],
+                    "operator" : "LT",
+                    "probability" : 1,
+                    "arithmeticTree" : {
+                      "leftNode" : {
+                        "type" : "COLUMN",
+                        "canonicalColumnName" : "public.lineitem.l_commitdate"
+                      },
+                      "rightNode" : {
+                        "type" : "COLUMN",
+                        "canonicalColumnName" : "public.lineitem.l_receiptdate"
+                      },
+                      "type" : "MINUS"
+                    },
+                    "allCanonicalColumnNames" : [
+                      "public.lineitem.l_receiptdate",
+                      "public.lineitem.l_commitdate"
+                    ],
+                    "type" : "MULTI_FILTER_OPERATION"
+                  }
+                ]
+              }
+            ]
+          },
+          "probability" : 0.0051384594
+        }
+      ],
+      "tableName" : "public.lineitem"
+    }
+  ]
+}

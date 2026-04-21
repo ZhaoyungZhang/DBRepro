@@ -1,0 +1,57 @@
+{
+  "public.supplier" : [
+    "public.supplier.s_nationkey",
+    "public.supplier.s_comment",
+    "public.supplier.s_suppkey"
+  ],
+  "public.region" : [
+    "public.region.r_name",
+    "public.region.r_regionkey"
+  ],
+  "public.part" : [
+    "public.part.p_brand",
+    "public.part.p_type",
+    "public.part.p_partkey",
+    "public.part.p_container",
+    "public.part.p_name",
+    "public.part.p_size"
+  ],
+  "public.lineitem" : [
+    "public.lineitem.l_discount",
+    "public.lineitem.l_receiptdate",
+    "public.lineitem.l_returnflag",
+    "public.lineitem.l_orderkey",
+    "public.lineitem.l_quantity",
+    "public.lineitem.l_partkey",
+    "public.lineitem.l_commitdate",
+    "public.lineitem.l_shipdate",
+    "public.lineitem.l_shipmode",
+    "public.lineitem.l_shipinstruct",
+    "public.lineitem.l_suppkey"
+  ],
+  "public.customer" : [
+    "public.customer.c_custkey",
+    "public.customer.c_mktsegment",
+    "public.customer.c_acctbal",
+    "public.customer.c_nationkey",
+    "public.customer.c_phone"
+  ],
+  "public.orders" : [
+    "public.orders.o_comment",
+    "public.orders.o_orderpriority",
+    "public.orders.o_orderkey",
+    "public.orders.o_custkey",
+    "public.orders.o_orderstatus",
+    "public.orders.o_orderdate"
+  ],
+  "public.partsupp" : [
+    "public.partsupp.ps_suppkey",
+    "public.partsupp.ps_supplycost",
+    "public.partsupp.ps_partkey"
+  ],
+  "public.nation" : [
+    "public.nation.n_nationkey",
+    "public.nation.n_regionkey",
+    "public.nation.n_name"
+  ]
+}

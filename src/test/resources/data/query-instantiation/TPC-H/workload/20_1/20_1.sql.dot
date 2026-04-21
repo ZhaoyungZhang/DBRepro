@@ -1,0 +1,36 @@
+digraph "20_1.sql" {rankdir=BT;
+    subgraph "clustern_nationkey3" {
+            "Pkn_nationkey3"[style=filled, color="#FFFFCC"];
+
+            "Fkn_nationkey3"[style=filled, color="#FFFFCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterp_partkey4" {
+            "Pkp_partkey4"[style=filled, color="#CCFFFF"];
+
+            "Fkp_partkey4"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey4" {
+            "Pks_suppkey4"[style=filled, color="#FFFFCC"];
+
+            "Fks_suppkey4"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+	"n_name = '#65'"[style=filled, color="#FFFFCC"];
+	"public.nation"[shape=box,style=filled, color="#FFFFCC"];
+	"public.nation"->"n_name = '#65'"[label="1.0"]
+	"n_name = '#65'"->"Pkn_nationkey3"[label="0.0400"];
+	"p_name like '#66'"[style=filled, color="#CCFFFF"];
+	"public.part"[shape=box,style=filled, color="#CCFFFF"];
+	"public.part"->"p_name like '#66'"[label="1.0"]
+	"p_name like '#66'"->"Pkp_partkey4"[label="0.0112"];
+	"public.partsupp"[shape=box,style=filled, color="#FFCCCC"];
+	"public.partsupp"->"Fks_suppkey4"[label="1.0"]
+	"Fks_suppkey4"->"Fkp_partkey4"[label="0.0397"];
+	RESULT[style=filled, color="#FFCCCC"];
+	"Fkp_partkey4"->RESULT[label="0.0104"]
+	"public.supplier"[shape=box,style=filled, color="#FFFFCC"];
+	"public.supplier"->"Fkn_nationkey3"[label="1.0"]
+	"Fkn_nationkey3"->"Pks_suppkey4"[label="0.0397"];
+}

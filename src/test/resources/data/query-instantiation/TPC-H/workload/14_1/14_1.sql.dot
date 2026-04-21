@@ -1,0 +1,10 @@
+digraph "14_1.sql" {rankdir=BT;
+	"(l_shipdate >= '#15' and
+l_shipdate < '#16')"[style=filled, color="#FFFFCC"];
+	"public.lineitem"[shape=box,style=filled, color="#FFFFCC"];
+	"public.lineitem"->"(l_shipdate >= '#15' and
+l_shipdate < '#16')"[label="1.0"]
+	RESULT[style=filled, color="#FFFFCC"];
+	"(l_shipdate >= '#15' and
+l_shipdate < '#16')"->RESULT[label="0.0125"]
+}

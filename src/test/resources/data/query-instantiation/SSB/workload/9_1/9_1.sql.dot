@@ -1,0 +1,47 @@
+digraph "9_1.sql" {rankdir=BT;
+    subgraph "clusterc_custkey5" {
+            "Pkc_custkey5"[style=filled, color="#FFFFCC"];
+
+            "Fkc_custkey5"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusterd_datekey8" {
+            "Pkd_datekey8"[style=filled, color="#CCFFFF"];
+
+            "Fkd_datekey8"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clusters_suppkey9" {
+            "Pks_suppkey9"[style=filled, color="#FFFFCC"];
+
+            "Fks_suppkey9"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+	"(c_city = '#51' or
+c_city = '#52')"[style=filled, color="#FFFFCC"];
+	"public.customer"[shape=box,style=filled, color="#FFFFCC"];
+	"public.customer"->"(c_city = '#51' or
+c_city = '#52')"[label="1.0"]
+	"(c_city = '#51' or
+c_city = '#52')"->"Pkc_custkey5"[label="0.0086"];
+	"(d_year >= '#53' and
+d_year <= '#54')"[style=filled, color="#CCFFFF"];
+	"public.dates"[shape=box,style=filled, color="#CCFFFF"];
+	"public.dates"->"(d_year >= '#53' and
+d_year <= '#54')"[label="1.0"]
+	"(d_year >= '#53' and
+d_year <= '#54')"->"Pkd_datekey8"[label="0.8576"];
+	"public.lineorder"[shape=box,style=filled, color="#FFCCCC"];
+	"public.lineorder"->"Fkc_custkey5"[label="1.0"]
+	"Fkc_custkey5"->"Fks_suppkey9"[label="0.0084"];
+	"Fks_suppkey9"->"Fkd_datekey8"[label="0.0096"];
+	RESULT[style=filled, color="#FFCCCC"];
+	"Fkd_datekey8"->RESULT[label="0.9085"]
+	"(s_city = '#49' or
+s_city = '#50')"[style=filled, color="#FFFFCC"];
+	"public.supplier"[shape=box,style=filled, color="#FFFFCC"];
+	"public.supplier"->"(s_city = '#49' or
+s_city = '#50')"[label="1.0"]
+	"(s_city = '#49' or
+s_city = '#50')"->"Pks_suppkey9"[label="0.0095"];
+}

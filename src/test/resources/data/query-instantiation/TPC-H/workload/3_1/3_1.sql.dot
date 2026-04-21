@@ -1,0 +1,31 @@
+digraph "3_1.sql" {rankdir=BT;
+    subgraph "clusterc_custkey2" {
+            "Pkc_custkey2"[style=filled, color="#FFFFCC"];
+
+            "Fkc_custkey2"[style=filled, color="#FFCCCC"];
+label="eq join";labelloc=b;
+    }
+    subgraph "clustero_orderkey2" {
+            "Pko_orderkey2"[style=filled, color="#FFCCCC"];
+
+            "Fko_orderkey2"[style=filled, color="#CCFFFF"];
+label="eq join";labelloc=b;
+    }
+	"c_mktsegment = '#89'"[style=filled, color="#FFFFCC"];
+	"public.customer"[shape=box,style=filled, color="#FFFFCC"];
+	"public.customer"->"c_mktsegment = '#89'"[label="1.0"]
+	"c_mktsegment = '#89'"->"Pkc_custkey2"[label="0.1998"];
+	"l_shipdate > '#88'"[style=filled, color="#CCFFFF"];
+	"public.lineitem"[shape=box,style=filled, color="#CCFFFF"];
+	"public.lineitem"->"l_shipdate > '#88'"[label="1.0"]
+	"l_shipdate > '#88'"->"Fko_orderkey2"[label="0.5423"];
+	"GroupKey:public.lineitem.l_orderkey"[style=filled, color="#CCFFFF"];
+	"Fko_orderkey2"->"GroupKey:public.lineitem.l_orderkey"[label="0.0093"];
+	RESULT[style=filled, color="#CCFFFF"];
+	"GroupKey:public.lineitem.l_orderkey"->RESULT[label="0.3777"]
+	"o_orderdate < '#87'"[style=filled, color="#FFCCCC"];
+	"public.orders"[shape=box,style=filled, color="#FFCCCC"];
+	"public.orders"->"o_orderdate < '#87'"[label="1.0"]
+	"o_orderdate < '#87'"->"Fkc_custkey2"[label="0.4827"];
+	"Fkc_custkey2"->"Pko_orderkey2"[label="0.1996"];
+}
