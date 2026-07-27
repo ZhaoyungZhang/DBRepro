@@ -3,6 +3,8 @@ target/
 *.class
 *.war
 *.ear
+lib/*.jar
+!lib/.gitkeep
 
 # === IDE Configs ===
 .idea/

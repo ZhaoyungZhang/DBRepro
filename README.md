@@ -58,7 +58,35 @@ Run the complete unit test suite separately:
 mvn test
 ```
 
-*Note: For configurations that modify PostgreSQL to identify IndexScan cardinalities more accurately, refer to the upstream [Mirage README](https://github.com/DBHammer/Mirage/blob/main/README.md). KingbaseES support requires its JDBC driver to be available under `lib/`.*
+*Note: For configurations that modify PostgreSQL to identify IndexScan cardinalities more accurately, refer to the upstream [Mirage README](https://github.com/DBHammer/Mirage/blob/main/README.md).*
+
+### KingbaseES Support
+
+DBRepro has been adapted and tested with the KingbaseES V8 series. The KingbaseES JDBC driver is proprietary and is therefore not redistributed in this repository. KingbaseES users must obtain `kingbase8-9.0.0.jar` from the JDBC directory of their official KingbaseES installation and place it under `lib/`:
+
+```bash
+cp <KINGBASE_INSTALL_DIR>/JDBC/kingbase8-9.0.0.jar lib/
+```
+
+Commands that connect to KingbaseES must include the external driver on the runtime classpath:
+
+```bash
+java -cp "target/DBRepro-0.1.0.jar:lib/*" \
+  ruc.db.rsgen.RSGenMainCLI <command> <options>
+
+java -cp "target/DBRepro-0.1.0.jar:lib/*" \
+  ruc.db.DBReproApp <stage> <options>
+```
+
+### Adapting Another Database
+
+Adding another JDBC-compatible database requires both connection and execution-plan integration:
+
+1. Add a connector under `src/main/java/ruc/db/dbconnector/adapter/` by extending `DbConnector`. Implement the JDBC URL settings, session initialization, `EXPLAIN` command, metadata access, and any database-specific catalog behavior.
+2. Add the database type to `src/main/java/ruc/db/analyzer/TouchstoneDbType.java` and `ConfigManager.DatabaseType` in `src/main/java/ruc/db/utils/ConfigManager.java`.
+3. Register the connector in the database-selection switches in `TaskConfigurator.java`, `SchemaStatsExtractor.java`, and `RSGenMainCLI.java`.
+4. Select or implement an execution-plan analyzer under `src/main/java/ruc/db/analyzer/online/adapter/`. PostgreSQL-compatible JSON plans can usually reuse `PgAnalyzer`; other plan formats require a new `AbstractAnalyzer` implementation.
+5. Provide the vendor JDBC driver as a Maven dependency when redistribution is permitted, or load a user-supplied JAR from `lib/` at runtime when it is not.
 
 ## DBRepro Workflow and Usage
 
