@@ -42,14 +42,14 @@ Build and verify the shaded JAR from the repository root:
 ./build_dbrepro_jar.sh
 ```
 
-The script compiles the project and creates `target/DBRepro-0.1.0.jar`. It also verifies both command-line entry points:
+The script compiles the project and creates `target/DBRepro-1.0.0.jar`. It also verifies both command-line entry points:
 
 ```bash
 # Statistics extraction and DDL generation
-java -jar target/DBRepro-0.1.0.jar --help
+java -jar target/DBRepro-1.0.0.jar --help
 
 # Prepare, instantiate, generate, and create stages
-java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp --help
+java -cp "target/DBRepro-1.0.0.jar:lib/*" ruc.db.DBReproApp --help
 ```
 
 Run the complete unit test suite separately:
@@ -71,10 +71,10 @@ cp <KINGBASE_INSTALL_DIR>/JDBC/kingbase8-9.0.0.jar lib/
 Commands that connect to KingbaseES must include the external driver on the runtime classpath:
 
 ```bash
-java -cp "target/DBRepro-0.1.0.jar:lib/*" \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" \
   ruc.db.rsgen.RSGenMainCLI <command> <options>
 
-java -cp "target/DBRepro-0.1.0.jar:lib/*" \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" \
   ruc.db.DBReproApp <stage> <options>
 ```
 
@@ -120,7 +120,7 @@ Relative paths are resolved from the process working directory, so the commands 
 First, extract the catalog statistics and schema information from the target database.
 
 ```bash
-java -jar target/DBRepro-0.1.0.jar \
+java -jar target/DBRepro-1.0.0.jar \
   extract -h <host> -p <port> -d <database_name> -u <user> \
   -w <password> -o <output_directory> -r direct-query
 ```
@@ -133,7 +133,7 @@ java -jar target/DBRepro-0.1.0.jar \
 Parse the local execution plans.
 
 ```bash
-java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" ruc.db.DBReproApp \
   prepare -c <config.json> -t <database_type>
 ```
 
@@ -143,7 +143,7 @@ java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
 Select the cardinality constraint solving stage. In this phase, DBRepro uses heuristic probabilistic inference to solve SCCs, and utilizes the Iterative Proportional Fitting (IPF) algorithm to reconcile potential conflicts between the extracted catalog statistics and the local cardinality constraints, ensuring accurate parameter instantiation.
 
 ```bash
-java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" ruc.db.DBReproApp \
   instantiate -c <output_directory> \
   --statistics <output_directory>/enhanced_column_statistics.json
 ```
@@ -152,7 +152,7 @@ java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
 Generate the synthetic data, making use of the enhanced column statistics to ensure distribution consistency.
 
 ```bash
-java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" ruc.db.DBReproApp \
   generate -c <output_directory> -o <data_output_directory> -n 1 -i 0 \
   --statistics <output_directory>/enhanced_column_statistics.json
 ```
@@ -162,11 +162,11 @@ Finally, generate the schema creation statements (DDL) and execute them to creat
 
 ```bash
 # Generate DDL files
-java -jar target/DBRepro-0.1.0.jar \
+java -jar target/DBRepro-1.0.0.jar \
   ddl -i <output_directory> -o <ddl_output_directory> -c <config.json>
 
 # OR directly create database elements
-java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+java -cp "target/DBRepro-1.0.0.jar:lib/*" ruc.db.DBReproApp \
   create -c <output_directory> -d <database_name> -o <ddl_output_directory>
 ```
 

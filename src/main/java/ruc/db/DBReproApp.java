@@ -9,7 +9,7 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 
 @Command(name = "DBRepro",
-        version = {"${COMMAND-NAME} 0.1.0",
+        version = {"${COMMAND-NAME} 1.0.0",
                 "JVM: ${java.version} (${java.vendor} ${java.vm.name} ${java.vm.version})",
                 "OS: ${os.name} ${os.version} ${os.arch}"},
         description = "tool for generating test database", sortOptions = false,
