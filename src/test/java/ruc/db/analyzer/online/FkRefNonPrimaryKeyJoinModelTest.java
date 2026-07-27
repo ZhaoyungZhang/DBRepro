@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * 外键列指向参照表<strong>非主键</strong>列（如 tmnl_comm_addr → trml_addr_code）时：
- * joinModel 应为 {@link JoinConstraintJoinModel#GENERIC}，且 CP 基数目标应走 targetJoinRows 路径。
+ * joinModel 应为 {@link JoinConstraintJoinModel#GENERIC}，且 CP 基数目标应按当前 batch 缩放 targetJoinRows。
  */
 class FkRefNonPrimaryKeyJoinModelTest {
 
@@ -64,7 +64,7 @@ class FkRefNonPrimaryKeyJoinModelTest {
     }
 
     @Test
-    void genericJoinModel_computeJoinCardinalityTarget_clampsToTargetJoinRows() {
+    void genericJoinModel_computeJoinCardinalityTarget_scalesTargetJoinRowsToBatch() {
         ConstraintChainFkJoinNode n = new ConstraintChainFkJoinNode(
                 "sgami_stat.a_arch_tmnl_comm_addr_he.tmnl_comm_addr",
                 "sgami_arch.a_arch_meter_full_info.trml_addr_code",
@@ -75,6 +75,6 @@ class FkRefNonPrimaryKeyJoinModelTest {
         n.setLeftInputRows(9_141_228L);
         n.setRightInputRows(630_271L);
         long filterSize = 1_000_000L;
-        assertEquals(630_271L, n.computeJoinCardinalityTargetForCp(filterSize));
+        assertEquals(68_948L, n.computeJoinCardinalityTargetForCp(filterSize));
     }
 }
