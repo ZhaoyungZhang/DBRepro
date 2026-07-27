@@ -16,13 +16,14 @@ import ruc.db.LanguageManager;
 
 /**
  * 配置文件管理器
- * 负责从 /home/Mirage/conf 目录加载和管理配置文件
+ * 负责从配置目录加载和管理配置文件
  * 
  * @author RSGen Implementation
  */
 public class ConfigManager {
     private static final Logger logger = LoggerFactory.getLogger(ConfigManager.class);
-    private static final String CONFIG_DIR = "/home/Mirage/conf";
+    private static final String CONFIG_DIR =
+            System.getProperty("dbrepro.config.dir", "conf");
     private static final ObjectMapper objectMapper = new ObjectMapper();
     
     /**
@@ -315,4 +316,4 @@ public class ConfigManager {
                        .replaceAll("\\.json$", "")
                        .split(",");
     }
-} 
+}

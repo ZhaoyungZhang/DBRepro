@@ -6,7 +6,7 @@
     "databasePwd": "postgres",
     "databaseUser": "postgres"
   },
-  "queriesDirectory": "/home/DBRepro/dbrepro_ssb/queriesDirectory",
-  "resultDirectory": "/home/DBRepro/dbrepro_ssb",
+  "queriesDirectory": "dbrepro_ssb/queriesDirectory",
+  "resultDirectory": "dbrepro_ssb",
   "defaultSchemaName": "public"
 }

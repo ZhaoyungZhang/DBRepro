@@ -27,17 +27,38 @@ High-fidelity goals achieved include: schema consistency, statistical consistenc
 
 ## Environment Setup
 
-DBRepro currently supports PostgreSQL versions 12 through 16, as well as commercial databases like the KingbaseES V8 series.
+DBRepro currently supports PostgreSQL versions 12 through 16 and includes an adapter for the KingbaseES V8 series.
 
-To run DBRepro, ensure you have **Java** and **Maven** installed. The provided workflow commands rely on Maven to execute the underlying Java application.
+DBRepro requires **Java 21 or newer** and **Maven**. Verify both tools before building:
 
 ```bash
-# Verify your Maven and Java installations
 mvn -version
 java -version
 ```
 
-*Note: For some specific configurations (like modifying the PostgreSQL source code for more accurate IndexScan cardinality identification), please refer to the upstream [Mirage README](https://github.com/DBHammer/Mirage/blob/main/README.md) for detailed instructions. If you are using KingbaseES, there is no need to modify the database source code.*
+Build and verify the shaded JAR from the repository root:
+
+```bash
+./build_dbrepro_jar.sh
+```
+
+The script compiles the project and creates `target/DBRepro-0.1.0.jar`. It also verifies both command-line entry points:
+
+```bash
+# Statistics extraction and DDL generation
+java -jar target/DBRepro-0.1.0.jar --help
+
+# Prepare, instantiate, generate, and create stages
+java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp --help
+```
+
+Run the complete unit test suite separately:
+
+```bash
+mvn test
+```
+
+*Note: For configurations that modify PostgreSQL to identify IndexScan cardinalities more accurately, refer to the upstream [Mirage README](https://github.com/DBHammer/Mirage/blob/main/README.md). KingbaseES support requires its JDBC driver to be available under `lib/`.*
 
 ## DBRepro Workflow and Usage
 
@@ -52,25 +73,28 @@ Before starting the pipeline, you need to set up a JSON configuration file. It c
     "databaseIp": "127.0.0.1",
     "databaseName": "ssb",
     "databasePort": "5432",
-    "databasePwd": "postgres",
-    "databaseUser": "postgres"
+    "databasePwd": "<password>",
+    "databaseUser": "<user>"
   },
-  "queriesDirectory": "/home/DBRepro/dbrepro_ssb/queriesDirectory",
-  "resultDirectory": "/home/DBRepro/dbrepro_ssb",
+  "queriesDirectory": "dbrepro_ssb/queriesDirectory",
+  "resultDirectory": "dbrepro_ssb",
   "defaultSchemaName": "public"
 }
 ```
 - `databaseConnectorConfig`: Target database connection information.
-- `queriesDirectory`: Path where your target SQL queries are located.
-- `resultDirectory`: Path for storing the outputs of query analysis and generation.
+- `queriesDirectory`: Path where the target SQL queries are located.
+- `resultDirectory`: Path for storing query-analysis and data-generation outputs.
 - `defaultSchemaName`: Default schema for the database (e.g., `public`).
+
+Relative paths are resolved from the process working directory, so the commands below should be run from the repository root. A short RSGen configuration name such as `dbrepro_ssb` resolves to `conf/dbrepro_ssb.json`. To use another default configuration directory, pass `-Ddbrepro.config.dir=<directory>` to Java. An explicit path ending in `.json` can always be supplied directly.
 
 ### 1. Statistics Extraction
 First, extract the catalog statistics and schema information from the target database.
 
 ```bash
-mvn exec:java -Dexec.mainClass="ruc.db.rsgen.RSGenMainCLI" \
-  -Dexec.args="extract -h <host> -p <port> -d <database_name> -u <user> -w <password> -o <output_directory> -r direct-query"
+java -jar target/DBRepro-0.1.0.jar \
+  extract -h <host> -p <port> -d <database_name> -u <user> \
+  -w <password> -o <output_directory> -r direct-query
 ```
 
 *Note on the `-r` parameter:*
@@ -81,8 +105,8 @@ mvn exec:java -Dexec.mainClass="ruc.db.rsgen.RSGenMainCLI" \
 Parse the local execution plans.
 
 ```bash
-mvn exec:java -Dexec.mainClass="ruc.db.DBReproApp" \
-  -Dexec.args="prepare -c <config.json> -t <database_type>"
+java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+  prepare -c <config.json> -t <database_type>
 ```
 
 *Note: You can also specify an execution plan directory using `--local-plan-json-dir <plan_directory>`, or specify a single execution plan using `--local-plan-json <plan_file>`.*
@@ -91,16 +115,18 @@ mvn exec:java -Dexec.mainClass="ruc.db.DBReproApp" \
 Select the cardinality constraint solving stage. In this phase, DBRepro uses heuristic probabilistic inference to solve SCCs, and utilizes the Iterative Proportional Fitting (IPF) algorithm to reconcile potential conflicts between the extracted catalog statistics and the local cardinality constraints, ensuring accurate parameter instantiation.
 
 ```bash
-mvn exec:java -Dexec.mainClass="ruc.db.DBReproApp" \
-  -Dexec.args="instantiate -c <output_directory> --statistics <output_directory>/enhanced_column_statistics.json"
+java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+  instantiate -c <output_directory> \
+  --statistics <output_directory>/enhanced_column_statistics.json
 ```
 
 ### 4. Data Generation
 Generate the synthetic data, making use of the enhanced column statistics to ensure distribution consistency.
 
 ```bash
-mvn exec:java -Dexec.mainClass="ruc.db.DBReproApp" \
-  -Dexec.args="generate -c <output_directory> -o <data_output_directory> -n 1 -i 0 --statistics <output_directory>/enhanced_column_statistics.json"
+java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+  generate -c <output_directory> -o <data_output_directory> -n 1 -i 0 \
+  --statistics <output_directory>/enhanced_column_statistics.json
 ```
 
 ### 5. Generate DDL and Indexes
@@ -108,12 +134,12 @@ Finally, generate the schema creation statements (DDL) and execute them to creat
 
 ```bash
 # Generate DDL files
-mvn exec:java -Dexec.mainClass="ruc.db.rsgen.RSGenMainCLI" \
-  -Dexec.args="ddl -i <output_directory> -o <ddl_output_directory> -c <config.json>"
+java -jar target/DBRepro-0.1.0.jar \
+  ddl -i <output_directory> -o <ddl_output_directory> -c <config.json>
 
 # OR directly create database elements
-mvn exec:java -Dexec.mainClass="ruc.db.DBReproApp" \
-  -Dexec.args="create -c <output_directory> -d <database_name> -o <ddl_output_directory>"
+java -cp "target/DBRepro-0.1.0.jar:lib/*" ruc.db.DBReproApp \
+  create -c <output_directory> -d <database_name> -o <ddl_output_directory>
 ```
 
 ### Example Artifacts
@@ -128,12 +154,20 @@ For additional details on the base functionality (such as detailed configuration
 
 ## Citation
 
-If you find this work useful or use it in your research, please cite our paper:
+If you use DBRepro in your research, please cite our ASE 2026 paper:
 
 ```bibtex
-@misc{zhang2026dbrepro,
-  title={DBRepro: Automated Hybrid Database Synthesis for Reproducing Analytical Slow Queries},
-  author={Zhang, Zhaoyang and Liu, Shuang and Xu, Dengfeng and Lu, Wei and Leng, Jianquan and Du, Sheng and Du, Xiaoyong},
-  year={2026},
-  note={Under Review}
+@inproceedings{zhang2026dbrepro,
+  author    = {Zhaoyang Zhang and Shuang Liu and Dengfeng Xu and Wei Lu and Jianquan Leng and Sheng Du and Xiaoyong Du},
+  title     = {{DBRepro}: Automated Database Synthesis via a Hybrid Constraint-Solving Approach for Reproducing Slow Queries},
+  booktitle = {Proceedings of the 41st IEEE/ACM International Conference on Automated Software Engineering (ASE '26)},
+  year      = {2026},
+  month     = oct,
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  location  = {Munich, Germany},
+  doi       = {10.1145/3832783.3834463},
+  isbn      = {979-8-4007-2882-2/2026/10},
+  url       = {https://doi.org/10.1145/3832783.3834463}
 }
+```

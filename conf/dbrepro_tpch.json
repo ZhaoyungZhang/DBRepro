@@ -6,7 +6,7 @@
     "databasePwd": "postgres",
     "databaseUser": "postgres"
   },
-  "queriesDirectory": "/home/DBRepro/dbrepro_tpch/queriesDirectory",
-  "resultDirectory": "/home/DBRepro/dbrepro_tpch",
+  "queriesDirectory": "dbrepro_tpch/queriesDirectory",
+  "resultDirectory": "dbrepro_tpch",
   "defaultSchemaName": "public"
 }
