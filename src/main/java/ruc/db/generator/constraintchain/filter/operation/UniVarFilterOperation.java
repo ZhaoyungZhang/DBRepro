@@ -55,16 +55,22 @@ public class UniVarFilterOperation extends AbstractFilterOperation {
                     ? column.getColumnCDF().getParameterConstraint() : null;
             for (Parameter parameter : parameters) {
                 boolean needRecover = parameter.getDataValue() == null || parameter.getDataValue().isEmpty();
-                // LIKE/NOT_LIKE：dataIndex→实际值 映射来自 bin-packing/其它实例化路径，易恢复成错误 MCV（如 514040008）；
-                // 应优先使用 Stage2 写入 ParameterConstraint 的 cdf 键/字面量，与 UPDATE_MCV 目标（如 514013202）一致。
-                if ((operator == LIKE || operator == NOT_LIKE) && pc != null && pc.valueToOperator != null) {
+                // CDF列：dataIndex→实际值 映射来自 bin-packing/其它实例化路径，可能恢复成错误 MCV（如 514030701）；
+                // 应优先使用 Stage2/UPDATE_MCV 写入 ParameterConstraint 的 cdf 键/字面量，与目标值（如 51401）一致。
+                if (pc != null && pc.valueToOperator != null) {
                     String cdfKey = findConstraintValueForOperator(pc, operator);
-                    // CDF/IPF 路径可能把无通配符的 LIKE 记为 EQ 桶频率，此时 valueToOperator 为 EQ
+                    // CDF/IPF 路径可能把无通配符的 LIKE 记为 EQ 桶频率，此时 valueToOperator 为 EQ。
                     if (cdfKey == null && operator == LIKE) {
                         cdfKey = findConstraintValueForOperator(pc, EQ);
+                    } else if (cdfKey == null && (operator == NE || operator == NOT_IN)) {
+                        cdfKey = findConstraintValueForOperator(pc, EQ);
+                    } else if (cdfKey == null && operator == NOT_LIKE) {
+                        cdfKey = findConstraintValueForOperator(pc, LIKE);
                     }
                     if (cdfKey != null) {
-                        parameter.setDataValue(likePatternLiteralForEvaluate(cdfKey));
+                        String literal = (operator == LIKE || operator == NOT_LIKE)
+                                ? likePatternLiteralForEvaluate(cdfKey) : cdfKey;
+                        parameter.setDataValue(literal);
                         logger.info("CDF列 {} amendParameters: {} 使用 ParameterConstraint 键 [{}] → 评估字面量 [{}]（不使用 dataIndex 映射）",
                                 canonicalColumnName, operator, cdfKey, parameter.getDataValue());
                         continue;

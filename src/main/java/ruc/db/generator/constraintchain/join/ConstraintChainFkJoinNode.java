@@ -9,9 +9,6 @@ import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.google.ortools.sat.IntVar;
-import com.google.ortools.sat.LinearExpr;
-
 import ruc.db.LanguageManager;
 import ruc.db.generator.ConstructCpModel;
 import ruc.db.generator.constraintchain.ConstraintChainNode;
@@ -49,6 +46,15 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
     private Long leftInputRows;
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private Long rightInputRows;
+
+    /**
+     * 当前约束链本表/参照表在该 JOIN 节点处的输入行数。执行计划左右孩子不一定等同于
+     * local/ref 方向，例如 Nested Loop 的左侧可能是小表 AMOC，右侧才是当前生成表 MLR。
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long localInputRows;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long refInputRows;
 
     /**
      * 可选：GENERIC 多桶缩放因子 \(w_k\)（与 {@link #targetJoinRows} 配合
@@ -96,6 +102,14 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
         return joinModel;
     }
 
+    /**
+     * Historical constraint-chain JSON did not record joinModel; treat null as the original PK/FK behavior.
+     */
+    @JsonIgnore
+    public boolean requiresPhysicalForeignKeyGeneration() {
+        return joinModel == null || joinModel == JoinConstraintJoinModel.PK_FK;
+    }
+
     public void setJoinModel(JoinConstraintJoinModel joinModel) {
         this.joinModel = joinModel;
     }
@@ -124,6 +138,22 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
         this.rightInputRows = rightInputRows;
     }
 
+    public Long getLocalInputRows() {
+        return localInputRows;
+    }
+
+    public void setLocalInputRows(Long localInputRows) {
+        this.localInputRows = localInputRows;
+    }
+
+    public Long getRefInputRows() {
+        return refInputRows;
+    }
+
+    public void setRefInputRows(Long refInputRows) {
+        this.refInputRows = refInputRows;
+    }
+
     public long[] getGenericBucketWeights() {
         return genericBucketWeights;
     }
@@ -141,22 +171,37 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
     }
 
     /**
-     * 写入 CP 的 JOIN 基数目标：GENERIC 且带 {@link #targetJoinRows} 时用计划行数并夹在 min(左右输入) 内；否则为 filterSize×probability。
+     * 写入 CP 的 JOIN 基数目标：GENERIC 且带 {@link #targetJoinRows} 时，按当前 batch 的
+     * {@code filterSize / localInputRows} 缩放计划全局行数。历史 JSON 没有 localInputRows 时
+     * 回退到 leftInputRows。参照侧行数不是 inner join 输出上界；例如 202 个组织编码可以匹配数百万 AMFI 行。
      */
     public long computeJoinCardinalityTargetForCp(long filterSize) {
         if (joinModel == JoinConstraintJoinModel.GENERIC && targetJoinRows != null) {
-            long upper = Long.MAX_VALUE;
-            if (leftInputRows != null) {
-                upper = Math.min(upper, leftInputRows);
+            long target;
+            Long scaleInputRows = localInputRows != null && localInputRows > 0 ? localInputRows : leftInputRows;
+            if (scaleInputRows != null && scaleInputRows > 0) {
+                BigDecimal scaled = BigDecimal.valueOf(filterSize)
+                        .multiply(BigDecimal.valueOf(targetJoinRows))
+                        .divide(BigDecimal.valueOf(scaleInputRows), 0, RoundingMode.HALF_UP);
+                target = scaled.longValue();
+            } else if (probability != null) {
+                target = BigDecimal.valueOf(filterSize).multiply(probability)
+                        .setScale(0, RoundingMode.HALF_UP).longValue();
+            } else {
+                target = targetJoinRows;
             }
-            if (rightInputRows != null) {
-                upper = Math.min(upper, rightInputRows);
-            }
-            upper = Math.min(upper, filterSize);
-            return Math.max(0L, Math.min(targetJoinRows, upper));
+            return Math.max(0L, Math.min(target, filterSize));
         }
         BigDecimal b = BigDecimal.valueOf(filterSize).multiply(probability);
         return b.setScale(0, RoundingMode.HALF_UP).longValue();
+    }
+
+    long computeFailFilterJoinCardinalityTargetForCp(long unFilterSize) {
+        if (probabilityWithFailFilter == null) {
+            return 0L;
+        }
+        BigDecimal target = BigDecimal.valueOf(Math.max(0L, unFilterSize)).multiply(probabilityWithFailFilter);
+        return target.setScale(0, RoundingMode.HALF_UP).longValue();
     }
 
     public BigDecimal getPkDistinctProbability() {
@@ -221,17 +266,11 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
             }
         }
         long indexJoinSize;
-        if (joinModel == JoinConstraintJoinModel.GENERIC && targetJoinRows != null) {
-            indexJoinSize = Math.max(0L, Math.min(targetJoinRows, unFilterSize));
-        } else {
-            BigDecimal bIndexJoinSize = BigDecimal.valueOf(unFilterSize).multiply(probabilityWithFailFilter);
-            indexJoinSize = bIndexJoinSize.setScale(0, RoundingMode.HALF_UP).longValue();
-        }
+        indexJoinSize = computeFailFilterJoinCardinalityTargetForCp(unFilterSize);
 
-        // 放宽IndexJoin约束：当indexJoinSize=0时允许[0,1]范围，避免INFEASIBLE
         if (indexJoinSize == 0) {
-            cpModel.addLinearConstraint(LinearExpr.sum(cpModel.getInvolvedVars().toArray(new IntVar[0])), 0, 1);
-            logger.info("放宽IndexJoin约束: 原始indexJoinSize=0, 允许范围[0,1]以避免INFEASIBLE, joinStatusIndex={}, joinStatusLocation={}",
+            cpModel.addJoinCardinalityConstraint(0, 0);
+            logger.info("IndexJoin fail-filter目标为0，使用精确0约束，joinStatusIndex={}, joinStatusLocation={}",
                        joinStatusIndex, joinStatusLocation);
         } else {
             cpModel.addJoinCardinalityConstraint(indexJoinSize);
@@ -278,6 +317,10 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
         if (!type.hasCardinalityConstraint()) {
             return;
         }
+        // EXISTS / SEMI JOIN 不参与 distinct/share-key 建模，只保留后续的 matched-row cardinality。
+        if (type.isSemi()) {
+            return;
+        }
         // 获取join对应的位置
         for (int filterIndex = 0; filterIndex < canBeInput.length; filterIndex++) {
             for (int pkStatusIndex = 0; pkStatusIndex < canBeInput[0].length; pkStatusIndex++) {
@@ -287,21 +330,36 @@ public class ConstraintChainFkJoinNode extends ConstraintChainNode {
             }
         }
 
-        var bPkSize = BigDecimal.valueOf(filterSize).multiply(pkDistinctProbability);
+        long distinctBaseSize = filterSize;
+        if (joinModel == JoinConstraintJoinModel.GENERIC && targetJoinRows != null) {
+            distinctBaseSize = computeJoinCardinalityTargetForCp(filterSize);
+            logger.info("GENERIC join distinct目标按匹配基数缩放: inputFilterSize={}, joinTargetForBatch={}, pkDistinctProbability={}, localCols={}, refCols={}",
+                    filterSize, distinctBaseSize, pkDistinctProbability, localCols, refCols);
+        }
+        var bPkSize = BigDecimal.valueOf(distinctBaseSize).multiply(pkDistinctProbability);
         long pkSize = bPkSize.setScale(0, RoundingMode.HALF_UP).longValue();
         // logger.info("添加Distinct约束: filterSize={}, pkDistinctProbability={}, 计算后pkSize={}", 
         //     filterSize, pkDistinctProbability, pkSize);
         // logger.info(rb.getString("addDistinctConstraint"), this, pkSize);
-        // 合法性约束，每个pkStatus不能超过提供的数量
-        // 注意：这里的 distinct 约束本质上是“上界”约束（distinct 使用的 PK 数量不能超过 pkSize），
-        // 而不是必须精确等于 pkSize。使用等式会在 filter 状态增多后非常容易导致 INFEASIBLE。
-        // cpModel.addJoinCardinalityConstraint(0, pkSize);
-        cpModel.addJoinCardinalityConstraint(pkSize);
+        // OUTER JOIN 的主基数约束由 addJoinCardinalityConstraint 处理；这里的 distinct 只应限制
+        // “最多使用多少个参照侧 key”。否则右表 key 非唯一、多个左表行共享同一右表 key 时，会错误要求
+        // matched rows 与 distinct keys 一一对应，导致 Q4 这类 GENERIC LEFT JOIN infeasible。
+        if (type == ConstraintNodeJoinType.OUTER_JOIN) {
+            cpModel.addJoinCardinalityConstraint(0, pkSize);
+        } else {
+            cpModel.addJoinCardinalityConstraint(pkSize);
+        }
 
     }
 
     public long addJoinCardinalityConstraint(ConstructCpModel cpModel, long filterSize, long unFilerSize, boolean[][] canBeInput) {
-        if (type.isSemi()) {
+        // EXISTS/SEMI JOIN 仍然需要收缩当前链上的存活行数，只是不应该再附带“精确 distinct 右键数量”约束。
+        // 对 Q10 这类 correlated EXISTS，如果这里直接放过，后续节点会继续拿未过滤的 localInputRows 去缩放，
+        // 导致 outer join 目标从 101 被放大成 276 一类错误值。
+        if (type == ConstraintNodeJoinType.SEMI_JOIN) {
+            return addJoinCardinalityConstraint(cpModel, filterSize, canBeInput);
+        }
+        if (type == ConstraintNodeJoinType.ANTI_SEMI_JOIN) {
             return filterSize;
         }
         if (probabilityWithFailFilter != null) {

@@ -50,10 +50,23 @@ public class Table {
     }
 
     @JsonIgnore
+    public boolean isPhysicalColumn(String canonicalColumnName) {
+        return canonicalColumnNames != null && canonicalColumnNames.contains(canonicalColumnName);
+    }
+
+    @JsonIgnore
+    public List<String> getPhysicalPrimaryKeysList() {
+        if (primaryKeys == null || primaryKeys.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return primaryKeys.stream().filter(this::isPhysicalColumn).toList();
+    }
+
+    @JsonIgnore
     public List<String> getAttributeColumnNames() {
         List<String> canonicalColumnNamesNotKey = new ArrayList<>(canonicalColumnNames);
-        canonicalColumnNamesNotKey.removeAll(primaryKeys);
-        canonicalColumnNamesNotKey.removeAll(foreignKeys.keySet());
+        canonicalColumnNamesNotKey.removeAll(getPhysicalPrimaryKeysList());
+        canonicalColumnNamesNotKey.removeAll(getPhysicalForeignKeyColumns());
         return canonicalColumnNamesNotKey;
     }
 
@@ -222,15 +235,28 @@ public class Table {
 
     private List<String> produceKeySQL() {
         List<String> allColumns = new ArrayList<>(canonicalColumnNames);
-        List<String> tempPrimayKeys = new ArrayList<>(primaryKeys);
+        List<String> tempPrimayKeys = new ArrayList<>(getPhysicalPrimaryKeysList());
         tempPrimayKeys.removeAll(foreignKeys.keySet());
         allColumns.removeAll(tempPrimayKeys);
-        allColumns.removeAll(foreignKeys.keySet());
-        List<String> foreignKeysList = new ArrayList<>(foreignKeys.keySet());
+        List<String> foreignKeysList = getPhysicalForeignKeyColumns();
+        allColumns.removeAll(foreignKeysList);
         Collections.sort(foreignKeysList);
         allColumns.addAll(0, foreignKeysList);
         allColumns.addAll(0, tempPrimayKeys);
         return allColumns;
+    }
+
+    @JsonIgnore
+    public List<String> getPhysicalColumnOutputOrder() {
+        return produceKeySQL();
+    }
+
+    @JsonIgnore
+    private List<String> getPhysicalForeignKeyColumns() {
+        if (foreignKeys == null || foreignKeys.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return foreignKeys.keySet().stream().filter(this::isPhysicalColumn).toList();
     }
 
     @Override

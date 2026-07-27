@@ -1,6 +1,7 @@
 package ruc.db.generator.constraintchain.agg;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import ruc.db.LanguageManager;
 import ruc.db.generator.ConstructCpModel;
 import ruc.db.generator.constraintchain.ConstraintChainNode;
@@ -22,13 +23,25 @@ public class ConstraintChainAggregateNode extends ConstraintChainNode {
     public int joinStatusIndex = -1;
     private List<String> groupKey;
     private BigDecimal aggProbability;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long inputRows;
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Long outputRows;
     ConstraintChainFilterNode aggFilter;
+    @JsonIgnore
+    private boolean allowsPostAggregateJoins;
 
 
     public ConstraintChainAggregateNode(List<String> groupKeys, BigDecimal aggProbability) {
         super(ConstraintChainNodeType.AGGREGATE);
         this.groupKey = groupKeys;
         this.aggProbability = aggProbability.stripTrailingZeros();
+    }
+
+    public ConstraintChainAggregateNode(List<String> groupKeys, BigDecimal aggProbability, Long inputRows, Long outputRows) {
+        this(groupKeys, aggProbability);
+        this.inputRows = inputRows;
+        this.outputRows = outputRows;
     }
 
     public ConstraintChainAggregateNode() {
@@ -43,6 +56,52 @@ public class ConstraintChainAggregateNode extends ConstraintChainNode {
         this.aggProbability = aggProbability.stripTrailingZeros();
     }
 
+    public Long getInputRows() {
+        return inputRows;
+    }
+
+    public void setInputRows(Long inputRows) {
+        this.inputRows = inputRows;
+    }
+
+    public Long getOutputRows() {
+        return outputRows;
+    }
+
+    public void setOutputRows(Long outputRows) {
+        this.outputRows = outputRows;
+    }
+
+    @JsonIgnore
+    public boolean isSingleGroupKeyDistinctConstraint() {
+        return groupKey != null && groupKey.size() == 1 && inputRows != null && inputRows > 0 && outputRows != null;
+    }
+
+    public long computeDistinctTargetForCp(long filterSize) {
+        long target;
+        if (inputRows != null && inputRows > 0 && outputRows != null) {
+            BigDecimal scaled = BigDecimal.valueOf(Math.max(0L, filterSize))
+                    .multiply(BigDecimal.valueOf(outputRows))
+                    .divide(BigDecimal.valueOf(inputRows), 0, RoundingMode.HALF_UP);
+            target = scaled.longValue();
+        } else if (aggProbability != null) {
+            target = BigDecimal.valueOf(Math.max(0L, filterSize))
+                    .multiply(aggProbability)
+                    .setScale(0, RoundingMode.HALF_UP)
+                    .longValue();
+        } else {
+            target = 0L;
+        }
+        return Math.max(0L, Math.min(target, Math.max(0L, filterSize)));
+    }
+
+    public BigDecimal computeAverageCountPerGroup(int scale) {
+        if (inputRows == null || outputRows == null) {
+            return BigDecimal.ZERO.setScale(Math.max(0, scale), RoundingMode.UNNECESSARY);
+        }
+        return AggregateValueModel.averageCountPerGroup(inputRows, outputRows, scale);
+    }
+
     public boolean removeAgg() {
         // 如果filter含有虚参，则不能被约减。其需要参与计算。
         if (aggFilter != null && aggFilter.getParameters().stream().anyMatch(parameter -> parameter.getType() == Parameter.ParameterType.VIRTUAL)) {
@@ -52,6 +111,9 @@ public class ConstraintChainAggregateNode extends ConstraintChainNode {
         // 如果没有group key 则不需要进行分布控制 无需考虑
         if (groupKey == null) {
             return true;
+        }
+        if (groupKey.size() == 1) {
+            return false;
         }
         // 清理group key， 如果含有参照表的外键，则clean被参照表的group key
         cleanGroupKeys();
@@ -77,10 +139,9 @@ public class ConstraintChainAggregateNode extends ConstraintChainNode {
                 }
             }
         }
-        var bPkSize = BigDecimal.valueOf(filterSize).multiply(aggProbability);
-        long pkSize = bPkSize.setScale(0, RoundingMode.HALF_UP).longValue();
-        // 合法性约束，每个pkStatus不能超过提供的数量
-        cpModel.addJoinCardinalityConstraint(pkSize);
+        long pkSize = computeDistinctTargetForCp(filterSize);
+        // GROUP BY 的输出基数是 distinct 目标，不应复用 JOIN 基数的容差。
+        cpModel.addJoinCardinalityConstraint(pkSize, pkSize);
     }
 
     private void cleanGroupKeys() {
@@ -123,9 +184,18 @@ public class ConstraintChainAggregateNode extends ConstraintChainNode {
         this.aggFilter = aggFilter;
     }
 
+    public boolean allowsPostAggregateJoins() {
+        return allowsPostAggregateJoins;
+    }
+
+    public void setAllowsPostAggregateJoins(boolean allowsPostAggregateJoins) {
+        this.allowsPostAggregateJoins = allowsPostAggregateJoins;
+    }
+
     @Override
     public String toString() {
-        return String.format("{GroupKey:%s, aggProbability:%s}", groupKey, aggProbability);
+        return String.format("{GroupKey:%s, aggProbability:%s, inputRows:%s, outputRows:%s}",
+                groupKey, aggProbability, inputRows, outputRows);
     }
 
     public List<String> getGroupKey() {

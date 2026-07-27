@@ -73,16 +73,35 @@ public class LogicNode extends BoolExprNode {
 
 
     public void removeOtherTablesOperation(String tableName) {
-        BoolExprNode root = this.children.get(0);
-        if (root.getType() == AND) {
-            LogicNode andRoot = (LogicNode) root;
-            List<BoolExprNode> prepareForRemove = andRoot.getChildren().stream()
-                    .filter(child -> child.isDifferentTable(tableName)).toList();
-            if (prepareForRemove.size() > 1) {
-                throw new UnsupportedOperationException();
+        retainOnlyTableOperations(tableName);
+    }
+
+    /**
+     * Retain predicates that can be evaluated against a single table.
+     *
+     * <p>Index Cond from nested-loop joins can contain outer-table references,
+     * e.g. {@code aamfi.inst_id = a.inst_id}. Such predicates are join
+     * conditions, not standalone single-table filters, and must not be used in
+     * {@code select count(*) from current_table where ...}.</p>
+     *
+     * @return true when this node still contains at least one predicate.
+     */
+    public boolean retainOnlyTableOperations(String tableName) {
+        return retainOnlyTableOperations(this, tableName);
+    }
+
+    private static boolean retainOnlyTableOperations(BoolExprNode node, String tableName) {
+        if (node instanceof LogicNode logicNode) {
+            if (logicNode.getType() == AND) {
+                List<BoolExprNode> retainedChildren = logicNode.getChildren().stream()
+                        .filter(child -> retainOnlyTableOperations(child, tableName))
+                        .collect(Collectors.toCollection(ArrayList::new));
+                logicNode.setChildren(retainedChildren);
+                return !retainedChildren.isEmpty();
             }
-            andRoot.getChildren().removeAll(prepareForRemove);
+            return !logicNode.isDifferentTable(tableName);
         }
+        return !node.isDifferentTable(tableName);
     }
 
     @Override

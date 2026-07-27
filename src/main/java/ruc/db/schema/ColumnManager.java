@@ -917,6 +917,24 @@ public class ColumnManager {
         return result;
     }
 
+    public void overrideColumnActualData(String columnName, long[] values) {
+        Object[] actual = new Object[values.length];
+        for (int i = 0; i < values.length; i++) {
+            actual[i] = values[i] == Long.MIN_VALUE ? null : values[i];
+        }
+        overrideColumnActualData(columnName, actual);
+    }
+
+    public void overrideColumnActualData(String columnName, Object[] actual) {
+        Column column = getColumn(columnName);
+        if (column == null) {
+            logger.warn("无法覆盖列 {} 的实际值：ColumnManager 中不存在该列", columnName);
+            return;
+        }
+        column.setColumnActualData(actual);
+        logger.info("已用逻辑JOIN RuleTable覆盖列 {} 的本批实际值，共 {} 行", columnName, actual.length);
+    }
+
     public long getMin(String columnName) {
         if (!columns.containsKey(columnName)) {
             return 0;
@@ -1233,10 +1251,15 @@ public class ColumnManager {
                     continue;
                 }
                 
-                // ★★★ 处理 NOT_LIKE：转换为 LIKE，选择率 = 1 - 原选择率 ★★★
+                // 对否定谓词，CDF 选出的 value 是“被排除/不匹配”的值；分布调频应约束该值本身的补集频率。
                 CompareOperator savedOperator = valueOperator;
                 BigDecimal savedSelectivity = selectivity;
-                if (valueOperator == CompareOperator.NOT_LIKE) {
+                if (valueOperator == CompareOperator.NE || valueOperator == CompareOperator.NOT_IN) {
+                    savedOperator = CompareOperator.EQ;
+                    savedSelectivity = BigDecimal.ONE.subtract(selectivity);
+                    logger.debug("列 {} 值 '{}' {} 转换为 EQ，选择率: {} -> {}",
+                               columnName, value, valueOperator, selectivity, savedSelectivity);
+                } else if (valueOperator == CompareOperator.NOT_LIKE) {
                     savedOperator = CompareOperator.LIKE;
                     savedSelectivity = BigDecimal.ONE.subtract(selectivity);
                     logger.debug("列 {} 值 '{}' NOT_LIKE 转换为 LIKE，选择率: {} -> {}", 

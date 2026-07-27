@@ -36,8 +36,9 @@ public class CdfConstraintsApplier {
     private static final LanguageManager LM = LanguageManager.getInstance();
 
     /**
-     * 将单列 {@code cdfConstraints.json} 的 values 映射中 LIKE / NOT_LIKE 条目合并进列的 {@link ColumnCDF#getParameterConstraint()}，
-     * 供数据生成阶段 {@code UniVarFilterOperation.amendParameters} 使用（与 {@link ruc.db.schema.ColumnManager} 中逻辑一致）。
+     * 将单列 {@code cdfConstraints.json} 的 values 映射合并进列的 {@link ColumnCDF#getParameterConstraint()}，
+     * 供数据生成阶段 {@code UniVarFilterOperation.amendParameters} 使用。这里必须覆盖 EQ/NE/LIKE 等全部
+     * 查询操作符，否则 UPDATE_MCV 已调整的目标字面量会在生成阶段被 dataIndex 映射覆盖。
      */
     public static void mergeLikeParameterConstraintFromValuesMap(Column column, Map<String, Object> valuesMap) {
         if (column == null || valuesMap == null || column.getColumnCDF() == null) {
@@ -59,9 +60,6 @@ public class CdfConstraintsApplier {
             try {
                 op = CompareOperator.valueOf(operatorStr.trim());
             } catch (IllegalArgumentException e) {
-                continue;
-            }
-            if (op != CompareOperator.LIKE && op != CompareOperator.NOT_LIKE) {
                 continue;
             }
             String selectivityStr = (String) valueConstraint.get("selectivity");
@@ -262,15 +260,22 @@ public class CdfConstraintsApplier {
             }
             
             double selectivity = Double.parseDouble(selectivityStr);
-            String value = "LIKE".equals(operator) ? 
+            String valueOperator = effectiveOperatorForMatchedBucket(operator, pattern);
+            double valueFrequency = effectiveSelectivityForMatchedBucket(operator, selectivity);
+            String value = "LIKE".equalsIgnoreCase(valueOperator) ?
                 generateValueForLikePattern(pattern, dataType) : pattern;
-            
+            if (("NE".equalsIgnoreCase(operator) || "NOT_IN".equalsIgnoreCase(operator) || "NOT_LIKE".equalsIgnoreCase(operator))
+                    && Math.abs(valueFrequency - selectivity) > 1e-12) {
+                logger.info("否定谓词ADD_MCV按补集频率应用: {} {} selectivity={} -> matchedBucketFrequency={}",
+                        operator, pattern, selectivity, valueFrequency);
+            }
+
             int existingIndex = mcvs.indexOf(value);
             if (existingIndex >= 0) {
-                mcfs.set(existingIndex, selectivity);
+                mcfs.set(existingIndex, valueFrequency);
             } else {
                 mcvs.add(value);
-                mcfs.add(selectivity);
+                mcfs.add(valueFrequency);
             }
             addMcvValues.add(value);
         }
@@ -314,14 +319,37 @@ public class CdfConstraintsApplier {
      * UPDATE_MCV 在 IPF 中使用的操作符：无通配符的 LIKE（cdf 键为纯字面量，如 514013202）按 EQ 与 MCV 桶精确匹配调频，
      * 等价于常见 SQL {@code col LIKE '514013202%'} 且取值域就是该字面量；含 %/_ 时仍走 LIKE 匹配器。
      */
+    private static double effectiveSelectivityForMatchedBucket(String operator, double selectivity) {
+        if (operator == null) {
+            return selectivity;
+        }
+        String op = operator.trim().toUpperCase();
+        if ("NE".equals(op) || "NOT_IN".equals(op) || "NOT_LIKE".equals(op)) {
+            return Math.max(0.0, Math.min(1.0, 1.0 - selectivity));
+        }
+        return selectivity;
+    }
+
+    private static String effectiveOperatorForMatchedBucket(String operator, String pattern) {
+        if (operator == null) {
+            return operator;
+        }
+        String op = operator.trim().toUpperCase();
+        if ("NE".equals(op) || "NOT_IN".equals(op)) {
+            return "EQ";
+        }
+        if ("NOT_LIKE".equals(op)) {
+            return "LIKE";
+        }
+        if ("LIKE".equals(op) && pattern != null
+                && pattern.indexOf('%') < 0 && pattern.indexOf('_') < 0) {
+            return "EQ";
+        }
+        return operator;
+    }
+
     private static String effectiveIpfOperatorForUpdateMcv(String operator, String pattern) {
-        if (!"LIKE".equalsIgnoreCase(operator) || pattern == null) {
-            return operator;
-        }
-        if (pattern.indexOf('%') >= 0 || pattern.indexOf('_') >= 0) {
-            return operator;
-        }
-        return "EQ";
+        return effectiveOperatorForMatchedBucket(operator, pattern);
     }
 
     /**
@@ -353,11 +381,10 @@ public class CdfConstraintsApplier {
             double selectivity = Double.parseDouble(selectivityStr);
             String valueForMatcher = pattern;
             String ipfOperator = effectiveIpfOperatorForUpdateMcv(operator, pattern);
-            
-            // ★★★ 修复：对于GE/GT约束，stage2已经保存了累计选择率 P(X >= v)，直接使用即可 ★★★
-            // 对于其他约束（EQ等），selectivity是单值频率或累计选择率，根据操作符类型而定
-            double targetFrequency = selectivity;
-            
+
+            // 否定谓词的 pattern 是被排除/不匹配的桶，IPF 应约束该桶的补集频率。
+            double targetFrequency = effectiveSelectivityForMatchedBucket(operator, selectivity);
+
             java.util.function.Predicate<String> matcher = DistributionAdjuster.createMatcher(ipfOperator, valueForMatcher, stats.getColumnName());
             String description = "LIKE".equalsIgnoreCase(operator) && "EQ".equals(ipfOperator)
                     ? String.format("LIKE %s (IPF按EQ匹配MCV字面量) -> selectivity=%.6f", pattern, targetFrequency)
@@ -416,19 +443,19 @@ public class CdfConstraintsApplier {
             double selectivity = Double.parseDouble(selectivityStr);
             String valueForMatcher = pattern;
             String ipfOperator = effectiveIpfOperatorForUpdateMcv(operator, pattern);
-            
+            double targetFrequency = effectiveSelectivityForMatchedBucket(operator, selectivity);
+
             java.util.function.Predicate<String> matcher = DistributionAdjuster.createMatcher(ipfOperator, valueForMatcher, stats.getColumnName());
-            
-            // 对于GE/GT约束，selectivity已经是累计选择率 P(X >= v)
-            // 对于其他约束（EQ等），selectivity是单值频率或累计选择率，根据操作符类型而定
+
+            // 对于否定谓词，selectivity 是谓词为真的概率；匹配桶频率需要取补集。
             String description = "LIKE".equalsIgnoreCase(operator) && "EQ".equals(ipfOperator)
-                    ? String.format("LIKE %s (IPF按EQ匹配MCV字面量) -> selectivity=%.6f", pattern, selectivity)
-                    : String.format("%s %s -> selectivity=%.6f", operator, pattern, selectivity);
+                    ? String.format("LIKE %s (IPF按EQ匹配MCV字面量) -> selectivity=%.6f", pattern, targetFrequency)
+                    : String.format("%s %s -> matchedBucketFrequency=%.6f", operator, pattern, targetFrequency);
             if ("GE".equals(operator) || "GT".equals(operator)) {
                 logger.debug(LM.formatBilingual("CdfDebugColumnGeConstraint",
-                            stats.getColumnName(), pattern, pattern, selectivity));
+                            stats.getColumnName(), pattern, pattern, targetFrequency));
             }
-            ipfConstraints.add(new DistributionAdjuster.Constraint(matcher, selectivity, description));
+            ipfConstraints.add(new DistributionAdjuster.Constraint(matcher, targetFrequency, description));
         }
         
         // 应用 IPF 算法

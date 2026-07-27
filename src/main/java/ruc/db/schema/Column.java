@@ -39,6 +39,7 @@ import ruc.db.utils.DataExportConstants;
 @JsonPropertyOrder({"columnType", "nullPercentage", "specialValue", "min", "range", "minLength", "rangeLength", "originalType"})
 public class Column {
     private static final Logger logger = LoggerFactory.getLogger(Column.class);
+    public static final String FILTER_EVAL_DIAGNOSTICS_PROPERTY = "dbrepro.filter.eval.diagnostics";
     /** 无统计信息时打印 paraData2Probability 的最大条数，避免万级桶卡死与日志爆内存 */
     private static final int MAX_DISTRIBUTION_LOG_ENTRIES = 64;
     /** offset2Pv 在分布日志中的最大条数 */
@@ -1364,7 +1365,7 @@ public class Column {
         }
         
         // ★★★ 调试：分析参数值在数据中的分布 ★★★
-        if (logger.isDebugEnabled() && paramValue != null && columnActualData != null) {
+        if (isFilterEvalDiagnosticsEnabled() && logger.isDebugEnabled() && paramValue != null && columnActualData != null) {
             int totalRows = columnActualData.length;
             int matchCount = 0;
             int nullCount = 0;
@@ -2058,6 +2059,11 @@ public class Column {
         return columnActualData;
     }
 
+    public void setColumnActualData(Object[] columnActualData) {
+        this.columnActualData = columnActualData;
+        this.columnActualNumericValues = null;
+    }
+
     public boolean hasDataForEvaluation() {
         return columnActualData != null || columnData != null;
     }
@@ -2065,7 +2071,7 @@ public class Column {
     public String output(int index) {
         // 根据是否有统计信息选择输出方式
         final String raw;
-        if (statistics != null && columnActualData != null) {
+        if (columnActualData != null) {
             raw = outputActualValue(index);
         } else {
             raw = transferDataToValue(columnData[index]);
@@ -2136,21 +2142,21 @@ public class Column {
             return Double.compare(d1, d2);
         }
         
-        // 如果都是字符串，进行字符串比较
         if (value1 instanceof String && value2 instanceof String) {
-            // 尝试解析为日期
-            try {
+            if (columnType == ColumnType.DATE) {
                 java.sql.Date date1 = java.sql.Date.valueOf((String) value1);
                 java.sql.Date date2 = java.sql.Date.valueOf((String) value2);
                 return date1.compareTo(date2);
-            } catch (Exception e) {
-                // 不是日期格式，使用字符串比较
-                return ((String) value1).compareTo((String) value2);
             }
+            return ((String) value1).compareTo((String) value2);
         }
         
         // 其他情况，转换为字符串比较
         return value1.toString().compareTo(value2.toString());
+    }
+
+    private static boolean isFilterEvalDiagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty(FILTER_EVAL_DIAGNOSTICS_PROPERTY, "false"));
     }
 
     public long getMin() {

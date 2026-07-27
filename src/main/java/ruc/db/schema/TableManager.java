@@ -83,6 +83,10 @@ public class TableManager {
         return getSchema(tableName).getCompletePrimaryKeysList();
     }
 
+    public List<String> getPhysicalPrimaryKeysList(String tableName) throws CannotFindSchemaException {
+        return getSchema(tableName).getPhysicalPrimaryKeysList();
+    }
+
     public String getRefKey(String localCol) {
         String[] nameArray = localCol.split("\\.");
         String tableName = nameArray[0] + "." + nameArray[1];

@@ -785,11 +785,13 @@ public class DDLSQLGenerator {
         if (tableInfo == null) {
             return out;
         }
+        List<String> canonical = (List<String>) tableInfo.get("canonicalColumnNames");
+        Set<String> physicalCanonical = canonical != null ? new HashSet<>(canonical) : new HashSet<>();
         Set<String> pkCanonical = new HashSet<>();
         List<String> pkList = (List<String>) tableInfo.get("primaryKeys");
         if (pkList != null) {
             for (String pk : pkList) {
-                if (pk == null || !pk.contains(".")) {
+                if (pk == null || !pk.contains(".") || !physicalCanonical.contains(pk)) {
                     continue;
                 }
                 pkCanonical.add(pk);
@@ -799,7 +801,11 @@ public class DDLSQLGenerator {
         Map<String, String> foreignKeys = (Map<String, String>) tableInfo.get("foreignKeys");
         List<String> fkKeys = new ArrayList<>();
         if (foreignKeys != null) {
-            fkKeys.addAll(foreignKeys.keySet());
+            for (String fk : foreignKeys.keySet()) {
+                if (physicalCanonical.contains(fk)) {
+                    fkKeys.add(fk);
+                }
+            }
             Collections.sort(fkKeys);
         }
         Set<String> fkCanonical = new HashSet<>(fkKeys);
@@ -809,7 +815,6 @@ public class DDLSQLGenerator {
             }
             out.add(fk.substring(fk.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT));
         }
-        List<String> canonical = (List<String>) tableInfo.get("canonicalColumnNames");
         if (canonical != null) {
             for (String col : canonical) {
                 if (col == null || !col.contains(".")) {

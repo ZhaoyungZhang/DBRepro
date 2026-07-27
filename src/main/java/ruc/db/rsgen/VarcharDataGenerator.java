@@ -72,9 +72,9 @@ public class VarcharDataGenerator {
         }
 
         // 1. 检查MCV
-        logger.debug("检查列 {} 的MCV数据", colStats.getColumnName());
-        logger.debug("MCV值列表: {}", colStats.getMostCommonValues());
-        logger.debug("MCV频率列表: {}", colStats.getMostCommonFrequencies());
+        // logger.debug("检查列 {} 的MCV数据", colStats.getColumnName());
+        // logger.debug("MCV值列表: {}", colStats.getMostCommonValues());
+        // logger.debug("MCV频率列表: {}", colStats.getMostCommonFrequencies());
         
         if (colStats.getMostCommonValues() != null && !colStats.getMostCommonValues().isEmpty()) {
             List<String> mcvValues = colStats.getMostCommonValues();

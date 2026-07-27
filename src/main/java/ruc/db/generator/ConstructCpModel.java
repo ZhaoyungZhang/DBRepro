@@ -25,6 +25,9 @@ import ruc.db.generator.joininfo.JoinStatus;
 public class ConstructCpModel {
 
     private static final double DISTINCT_FK_SKEW = 2;
+    private static final double DEFAULT_CP_TIMEOUT_SECONDS = 600.0;
+    public static final String CP_TIMEOUT_PROPERTY = "dbrepro.cp.timeout.seconds";
+    public static final String CP_TIMEOUT_ENV = "DBREPRO_CP_TIMEOUT_SECONDS";
     private final Logger logger = LoggerFactory.getLogger(ConstructCpModel.class);
     private final CpModel model = new CpModel();
     private final CpSolver solver = new CpSolver();
@@ -56,6 +59,10 @@ public class ConstructCpModel {
         logger.debug("num of constraints is {}", model.model().getConstraintsCount());
         solver.getParameters().setEnumerateAllSolutions(false);
         solver.getParameters().setNumWorkers(Runtime.getRuntime().availableProcessors());
+        double timeoutSeconds = resolveCpTimeoutSeconds();
+        if (timeoutSeconds > 0) {
+            solver.getParameters().setMaxTimeInSeconds(timeoutSeconds);
+        }
         CpSolverStatus status = solver.solve(model);
         if (status == CpSolverStatus.OPTIMAL || status == CpSolverStatus.FEASIBLE) {
             logger.info(rb.getString("constructCpModelCostTime"), solver.wallTime() * 1000);
@@ -71,9 +78,9 @@ public class ConstructCpModel {
         } else {
             // 提供更详细的错误信息
             String statusStr = status.toString();
-            logger.error("CP求解失败 - 状态: {}, 变量数: {}, 约束数: {}, 求解时间: {}ms", 
+            logger.error("CP求解失败 - 状态: {}, 变量数: {}, 约束数: {}, 求解时间: {}ms, timeoutSeconds={}",
                     statusStr, model.model().getVariablesCount(), 
-                    model.model().getConstraintsCount(), solver.wallTime() * 1000);
+                    model.model().getConstraintsCount(), solver.wallTime() * 1000, timeoutSeconds);
             
             // 记录模型统计信息
             if (vars != null) {
@@ -134,10 +141,26 @@ public class ConstructCpModel {
             }
 
             throw new UnsupportedOperationException(
-                String.format("No solution found. Status: %s, Variables: %d, Constraints: %d",
+                String.format("No solution found. Status: %s, Variables: %d, Constraints: %d, TimeoutSeconds: %.3f",
                     statusStr, model.model().getVariablesCount(),
-                    model.model().getConstraintsCount())
+                    model.model().getConstraintsCount(), timeoutSeconds)
             );
+        }
+    }
+
+    private static double resolveCpTimeoutSeconds() {
+        String configured = System.getProperty(CP_TIMEOUT_PROPERTY);
+        if (configured == null || configured.isBlank()) {
+            configured = System.getenv(CP_TIMEOUT_ENV);
+        }
+        if (configured == null || configured.isBlank()) {
+            return DEFAULT_CP_TIMEOUT_SECONDS;
+        }
+        try {
+            double timeoutSeconds = Double.parseDouble(configured.trim());
+            return timeoutSeconds < 0 ? DEFAULT_CP_TIMEOUT_SECONDS : timeoutSeconds;
+        } catch (NumberFormatException e) {
+            return DEFAULT_CP_TIMEOUT_SECONDS;
         }
     }
 
@@ -251,13 +274,14 @@ public class ConstructCpModel {
     }
 
     public void addJoinCardinalityConstraint(long eqJoinSize) {
-        // 添加10%的容差以改善求解器可行性
-        long tolerance = (long) (eqJoinSize * 0.05);
+        // Keep the main join cardinality tight. Wide tolerance hides generic-join drift
+        // and later makes plan comparison much harder to diagnose.
+        long tolerance = Math.max(1L, (long) (eqJoinSize * 0.005));
         addJoinCardinalityConstraint(eqJoinSize - tolerance, eqJoinSize + tolerance);
     }
 
     /**
-     * 非 PK/FK 多谓词分解时的加权基数约束：{@code sum_i (weights[i] * vars[i])} 落在目标值 ±8% 容差内（与 {@link #addJoinCardinalityConstraint(long)} 一致）。
+     * 非 PK/FK 多谓词分解时的加权基数约束：{@code sum_i (weights[i] * vars[i])} 落在目标值 ±1% 容差内。
      *
      * @param vars      与 weights 等长的决策变量
      * @param weights   非负权重（例如各 PF 桶系数）
@@ -291,7 +315,7 @@ public class ConstructCpModel {
             return;
         }
         LinearExpr expr = LinearExpr.weightedSum(vars, weights);
-        long tolerance = (long) (targetSum * 0.08);
+        long tolerance = (long) (targetSum * 0.01);
         if (tolerance < 1) {
             tolerance = 1;
         }

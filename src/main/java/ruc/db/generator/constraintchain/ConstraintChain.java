@@ -59,7 +59,9 @@ public class ConstraintChain {
     }
 
     private boolean involvedNode(ConstraintChainNode node, List<String> fkCols) {
-        boolean involvedFk = node instanceof ConstraintChainFkJoinNode fkNode && fkCols.contains(fkNode.getLocalCols());
+        boolean involvedFk = node instanceof ConstraintChainFkJoinNode fkNode
+                && fkNode.requiresPhysicalForeignKeyGeneration()
+                && fkCols.contains(fkNode.getLocalCols());
         // todo 处理复合的groupby key
         boolean involvedAgg = node instanceof ConstraintChainAggregateNode aggNode && aggNode.getGroupKey() != null && fkCols.contains(aggNode.getGroupKey().get(0));
         return involvedFk || involvedAgg;
@@ -67,6 +69,19 @@ public class ConstraintChain {
 
     public List<ConstraintChainNode> getInvolvedNodes(List<String> fkCols) {
         return nodes.stream().filter(node -> involvedNode(node, fkCols)).toList();
+    }
+
+    private boolean involvedJoinKeyNode(ConstraintChainNode node, List<String> fkCols) {
+        boolean involvedFk = node instanceof ConstraintChainFkJoinNode fkNode
+                && fkCols.contains(fkNode.getLocalCols());
+        boolean involvedAgg = node instanceof ConstraintChainAggregateNode aggNode
+                && aggNode.getGroupKey() != null
+                && fkCols.contains(aggNode.getGroupKey().get(0));
+        return involvedFk || involvedAgg;
+    }
+
+    public List<ConstraintChainNode> getInvolvedJoinKeyNodes(List<String> fkCols) {
+        return nodes.stream().filter(node -> involvedJoinKeyNode(node, fkCols)).toList();
     }
 
     public String getTableName() {
@@ -143,8 +158,44 @@ public class ConstraintChain {
         return nodes.stream().anyMatch(node -> node.getConstraintChainNodeType() == ConstraintChainNodeType.FK_JOIN);
     }
 
+    public boolean hasJoinKeyNode() {
+        return hasFkNode();
+    }
+
+    public boolean hasPhysicalFkNode() {
+        return nodes.stream()
+                .filter(ConstraintChainFkJoinNode.class::isInstance)
+                .map(ConstraintChainFkJoinNode.class::cast)
+                .anyMatch(ConstraintChainFkJoinNode::requiresPhysicalForeignKeyGeneration);
+    }
+
     public boolean hasAggNode(){
         return nodes.stream().anyMatch(node -> node.getConstraintChainNodeType() == ConstraintChainNodeType.AGGREGATE);
+    }
+
+    @JsonIgnore
+    public boolean canContinueJoinAfterAggregateOnLocalKey(String localKey) {
+        if (!hasAggNode()) {
+            return true;
+        }
+        if (localKey == null || localKey.isBlank()) {
+            return false;
+        }
+        for (ConstraintChainNode node : nodes) {
+            if (!(node instanceof ConstraintChainAggregateNode aggNode)) {
+                continue;
+            }
+            if (aggNode.allowsPostAggregateJoins()) {
+                continue;
+            }
+            if (!aggNode.isSingleGroupKeyDistinctConstraint()) {
+                return false;
+            }
+            if (!localKey.equals(aggNode.getGroupKey().get(0))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @JsonIgnore
@@ -152,6 +203,13 @@ public class ConstraintChain {
         return nodes.stream().filter(constraintChainNode ->
                         constraintChainNode.getConstraintChainNodeType() == ConstraintChainNodeType.FK_JOIN)
                 .map(ConstraintChainFkJoinNode.class::cast).toList();
+    }
+
+    @JsonIgnore
+    public List<ConstraintChainFkJoinNode> getPhysicalFkNodes() {
+        return getFkNodes().stream()
+                .filter(ConstraintChainFkJoinNode::requiresPhysicalForeignKeyGeneration)
+                .toList();
     }
 
     public StringBuilder presentConstraintChains(Map<String, SubGraph> subGraphHashMap, String color) {
