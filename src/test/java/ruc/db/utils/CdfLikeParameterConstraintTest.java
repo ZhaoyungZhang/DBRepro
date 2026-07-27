@@ -71,6 +71,29 @@ class CdfLikeParameterConstraintTest {
         assertEquals(CompareOperator.LIKE, pc.getOperatorForValue("514013202"));
     }
 
+
+    @Test
+    void mergeEqFromValuesMap_setsParameterConstraint() {
+        Column column = new Column(ColumnType.VARCHAR);
+        column.setOriginalType("varchar(16)");
+        column.init();
+        column.buildCDFFromStatistics(
+                varcharMcvOnly("mgt_code", List.of("514030701", "51401"), List.of(0.97, 0.03)));
+
+        Map<String, Object> valuesMap = new HashMap<>();
+        Map<String, Object> one = new HashMap<>();
+        one.put("operator", "EQ");
+        one.put("selectivity", "0.0288489003");
+        one.put("constraintType", "UPDATE_MCV");
+        valuesMap.put("51401", one);
+
+        CdfConstraintsApplier.mergeLikeParameterConstraintFromValuesMap(column, valuesMap);
+
+        ColumnCDF.ParameterConstraint pc = column.getColumnCDF().getParameterConstraint();
+        assertNotNull(pc);
+        assertEquals(CompareOperator.EQ, pc.getOperatorForValue("51401"));
+    }
+
     @Test
     void rebuildCdf_preservesParameterConstraint() {
         Column column = new Column(ColumnType.VARCHAR);
@@ -87,6 +110,92 @@ class CdfLikeParameterConstraintTest {
         ColumnCDF.ParameterConstraint pc = column.getColumnCDF().getParameterConstraint();
         assertNotNull(pc);
         assertEquals(CompareOperator.LIKE, pc.getOperatorForValue("514013202"));
+    }
+
+
+
+
+    @Test
+    void applyOldNeAddMcvConstraintUsesComplementFrequency() {
+        EnhancedColumnStatistics stats = varcharMcvOnly("meter", List.of("123456"), List.of(0.99));
+        Map<String, Object> valuesMap = new HashMap<>();
+        Map<String, Object> one = new HashMap<>();
+        one.put("operator", "NE");
+        one.put("selectivity", "0.9999999752");
+        one.put("constraintType", "ADD_MCV");
+        valuesMap.put("915767", one);
+
+        CdfConstraintsApplier.applyConstraintToStatistics(stats, valuesMap);
+
+        int idx = stats.getMostCommonValues().indexOf("915767");
+        assertEquals(1, idx);
+        assertEquals(0.0000000248, stats.getMostCommonFrequencies().get(idx), 1e-12);
+    }
+
+    @Test
+    void applyOldNeUpdateMcvConstraintUsesComplementFrequency() {
+        EnhancedColumnStatistics stats = varcharMcvOnly("meter", List.of("915767", "123456"), List.of(0.01, 0.99));
+        Map<String, Object> valuesMap = new HashMap<>();
+        Map<String, Object> one = new HashMap<>();
+        one.put("operator", "NE");
+        one.put("selectivity", "0.9999999752");
+        one.put("constraintType", "UPDATE_MCV");
+        valuesMap.put("915767", one);
+
+        CdfConstraintsApplier.applyConstraintToStatistics(stats, valuesMap);
+
+        int idx = stats.getMostCommonValues().indexOf("915767");
+        assertEquals(0.0000000248, stats.getMostCommonFrequencies().get(idx), 1e-8);
+    }
+
+    @Test
+    void amendParameters_neFallsBackToEqStoredConstraint() throws TouchstoneException {
+        String col = uniqueCol();
+        Column column = new Column(ColumnType.VARCHAR);
+        column.setOriginalType("varchar(16)");
+        column.init();
+        column.buildCDFFromStatistics(
+                varcharMcvOnly("meter", List.of("915767", "123456"), List.of(0.01, 0.99)));
+        column.getColumnCDF().setParameterConstraint(
+                new ColumnCDF.ParameterConstraint("915767", new BigDecimal("0.0000000248"), CompareOperator.EQ));
+        column.getDataIndex2ActualValue().put(1L, "123456");
+
+        ColumnManager.getInstance().addColumn(col, column);
+
+        Parameter p = new Parameter();
+        p.setId(0);
+        p.setData(1L);
+        p.setDataValue(null);
+
+        UniVarFilterOperation op = new UniVarFilterOperation(col, CompareOperator.NE, List.of(p));
+        op.amendParameters();
+
+        assertEquals("915767", p.getDataValue());
+    }
+
+    @Test
+    void amendParameters_eqPrefersParameterConstraintOverWrongDataIndexMapping() throws TouchstoneException {
+        String col = uniqueCol();
+        Column column = new Column(ColumnType.VARCHAR);
+        column.setOriginalType("varchar(16)");
+        column.init();
+        column.buildCDFFromStatistics(
+                varcharMcvOnly("mgt", List.of("514030701", "51401"), List.of(0.97, 0.03)));
+        column.getColumnCDF().setParameterConstraint(
+                new ColumnCDF.ParameterConstraint("51401", new BigDecimal("0.0288489003"), CompareOperator.EQ));
+        column.getDataIndex2ActualValue().put(1L, "514030701");
+
+        ColumnManager.getInstance().addColumn(col, column);
+
+        Parameter p = new Parameter();
+        p.setId(1);
+        p.setData(1L);
+        p.setDataValue(null);
+
+        UniVarFilterOperation op = new UniVarFilterOperation(col, CompareOperator.EQ, List.of(p));
+        op.amendParameters();
+
+        assertEquals("51401", p.getDataValue());
     }
 
     @Test
