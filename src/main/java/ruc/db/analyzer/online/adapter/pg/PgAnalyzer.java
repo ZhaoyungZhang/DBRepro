@@ -48,25 +48,46 @@ public class PgAnalyzer extends AbstractAnalyzer {
     private static final Pattern JOIN_EQ_OPERATOR = Pattern.compile("Cond: \\(.*\\)");
     private static final Pattern EQ_OPERATOR = Pattern.compile("\\(([a-zA-Z0-9_$]+\\.[a-zA-Z0-9_$]+\\.[a-zA-Z0-9_$]+) = ([a-zA-Z0-9_$]+\\.[a-zA-Z0-9_$]+\\.[a-zA-Z0-9_$]+)\\)");
     private static final Pattern HASH_SUB_PLAN = Pattern.compile("\\(NOT \\(hashed SubPlan \\d+\\)\\)");
+    private static final Pattern SUBPLAN_ALTERNATIVE = Pattern.compile(
+            "\\(?\\s*alternatives:\\s*SubPlan\\s+\\d+\\s+or\\s+hashed\\s+SubPlan\\s+\\d+\\s*\\)?",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern SIMPLE_EQ_PREDICATE = Pattern.compile(
+            "\\(?\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){0,2})\\s*\\)?\\s*=\\s*\\(?\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){0,2}|'[^']*'|\\d+)\\s*\\)?",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern COUNT_GT_LITERAL = Pattern.compile(
+            "^\\(*\\s*count\\s*\\(\\s*\\*\\s*\\)\\s*>\\s*\\d+\\s*\\)*$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern COUNT_DISTINCT_OUTPUT = Pattern.compile(
+            "count\\s*\\(\\s*distinct\\s+([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\s*\\)",
+            Pattern.CASE_INSENSITIVE);
     private static final Pattern BOOL_LITERAL = Pattern.compile("\\b(true|false)\\b", Pattern.CASE_INSENSITIVE);
     /**
      * {@code (ref)::type}，ref 为 {@code alias.col} 或 {@code schema.table.col}（EXPLAIN Hash Cond 常见）。
      */
     private static final Pattern TWO_OR_THREE_PART_PAREN_CAST = Pattern.compile(
             "\\(\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\s*\\)\\s*::\\s*[a-zA-Z0-9_.\\[\\]]+");
+    private static final Pattern REDUNDANT_TWO_OR_THREE_PART_PARENS = Pattern.compile(
+            "\\(\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\s*\\)");
+    private static final Pattern SINGLE_IDENT_PAREN_CAST = Pattern.compile(
+            "\\(\\s*([a-zA-Z_][a-zA-Z0-9_$]*)\\s*\\)\\s*::\\s*[a-zA-Z0-9_.\\[\\]]+");
+    private static final Pattern REDUNDANT_SINGLE_IDENT_PARENS = Pattern.compile(
+            "\\(\\s*([a-zA-Z_][a-zA-Z0-9_$]*)\\s*\\)");
     /** 计划里大整数比较常无引号，词法器按 int 解析会 NumberFormatException，先加上引号。 */
     private static final Pattern UNQUOTED_LARGE_INT_COMPARE = Pattern.compile(
             "(<>|!=|>=|<=|>|<|=)\\s+(\\d{8,})\\b");
     /**
-     * {@code (col)::text = ANY (…::text[])}（含 InitPlan {@code ARRAY[$n]} 等）：当前 CUP 无法解析，
-     * 仅用于识别并打日志，不修改字符串。
+     * {@code (col)::text = ANY ((ARRAY[$n])::text[])}（InitPlan 参数数组）。
+     * 这类谓词的真实值域在主计划里不可见，CUP 也无法解析 {@code ARRAY[$n]}；
+     * 普通过滤链先剔除它，具体基数需由拆出的子查询/改写 SQL 约束补上。
      */
     private static final Pattern PG_TEXT_EQ_ANY_TEXTARRAY = Pattern.compile(
-            "\\(\\s*\\(([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\)\\s*::\\s*text\\s*=\\s*ANY\\s*\\(\\s*[^:]+::\\s*text\\[\\]\\s*\\)\\s*\\)",
+            "\\(\\s*\\(?\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\s*\\)?\\s*::\\s*text\\s*=\\s*ANY\\s*\\(\\s*\\(?\\s*ARRAY\\s*\\[\\s*\\$\\d+\\s*\\]\\s*\\)?\\s*::\\s*text\\[\\]\\s*\\)\\s*\\)",
             Pattern.CASE_INSENSITIVE);
     /** 等号两侧为两段或三段限定名（在剥 cast / 前缀之后）。 */
     private static final Pattern LOOSE_TWO_OR_THREE_PART_EQ = Pattern.compile(
             "([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})\\s*=\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})");
+    private static final Pattern TWO_OR_THREE_PART_REF = Pattern.compile(
+            "([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})");
     /**
      * {@code (((schema.table.col)} 多一层括号常见于 {@code ~~} 前；收束为 {@code ((col)} 以匹配 {@code like_compare_expr}。
      */
@@ -126,6 +147,7 @@ public class PgAnalyzer extends AbstractAnalyzer {
     private final PgSelectOperatorInfoParser parser = new PgSelectOperatorInfoParser(new PgSelectOperatorInfoLexer(new StringReader("")), new ComplexSymbolFactory());
     public StringBuilder pathForSplit = null;
     private final ResourceBundle rb = LanguageManager.getInstance().getRb();
+    private final Map<String, String[]> derivedColumnLineage = new HashMap<>();
 
     public PgAnalyzer() {
         super();
@@ -150,6 +172,107 @@ public class PgAnalyzer extends AbstractAnalyzer {
         return rawTableName;
     }
 
+    private void collectPlanAliasesAndDerivedLineage(StringBuilder path) {
+        String nodeType = PgJsonReader.readNodeType(path);
+        if (nodeType == null) {
+            return;
+        }
+        int plansCount = PgJsonReader.readPlansCount(path);
+        for (int i = 0; i < plansCount; i++) {
+            collectPlanAliasesAndDerivedLineage(new StringBuilder(path).append("['Plans'][").append(i).append("]"));
+        }
+        registerBaseTableAlias(path);
+        if ("Subquery Scan".equals(nodeType)) {
+            registerSubqueryScanLineage(path);
+        }
+    }
+
+    private void registerBaseTableAlias(StringBuilder path) {
+        String alias = PgJsonReader.readAlias(path.toString());
+        String schema = PgJsonReader.readSchema(path.toString());
+        String relation = PgJsonReader.readRelationName(path.toString());
+        if (alias == null || schema == null || relation == null) {
+            return;
+        }
+        aliasDic.put(alias.replace("\"", ""), resolveTableName(schema + "." + relation));
+    }
+
+    private void registerSubqueryScanLineage(StringBuilder path) {
+        String alias = PgJsonReader.readAlias(path.toString());
+        List<String> outputs = PgJsonReader.readOutput(path);
+        if (alias == null || outputs == null || outputs.isEmpty() || PgJsonReader.readPlansCount(path) == 0) {
+            return;
+        }
+        List<String[]> childRefs = collectResolvableColumnRefs(PgJsonReader.move2LeftChild(path));
+        for (String output : outputs) {
+            String outputCol = lastColumnName(output);
+            if (outputCol == null) {
+                continue;
+            }
+            String[] source = findUniqueSourceForOutputColumn(outputCol, childRefs);
+            if (source != null) {
+                derivedColumnLineage.put(lineageKey(alias, outputCol), source);
+                logger.debug("Derived column lineage: {}.{} -> {}", alias, outputCol, String.join(".", source));
+            }
+        }
+    }
+
+    private List<String[]> collectResolvableColumnRefs(StringBuilder path) {
+        List<String[]> refs = new ArrayList<>();
+        addResolvableRefs(refs, PgJsonReader.readGroupKey(path));
+        addResolvableRefs(refs, PgJsonReader.readOutput(path));
+        int plansCount = PgJsonReader.readPlansCount(path);
+        for (int i = 0; i < plansCount; i++) {
+            refs.addAll(collectResolvableColumnRefs(new StringBuilder(path).append("['Plans'][").append(i).append("]")));
+        }
+        return refs;
+    }
+
+    private void addResolvableRefs(List<String[]> refs, List<String> expressions) {
+        if (expressions == null) {
+            return;
+        }
+        for (String expression : expressions) {
+            Matcher matcher = TWO_OR_THREE_PART_REF.matcher(stripTwoOrThreePartParenCastsLoop(expression));
+            while (matcher.find()) {
+                String[] resolved = ensureThreePartBaseRef(matcher.group(1));
+                if (resolved != null) {
+                    refs.add(resolved);
+                }
+            }
+        }
+    }
+
+    private String[] findUniqueSourceForOutputColumn(String outputCol, List<String[]> childRefs) {
+        Map<String, String[]> candidates = new LinkedHashMap<>();
+        for (String[] ref : childRefs) {
+            if (ref.length == 3 && ref[2].equalsIgnoreCase(outputCol)) {
+                candidates.put(String.join(".", ref).toLowerCase(Locale.ROOT), ref);
+            }
+        }
+        return candidates.size() == 1 ? candidates.values().iterator().next() : null;
+    }
+
+    private static String lastColumnName(String expression) {
+        if (expression == null) {
+            return null;
+        }
+        Matcher matcher = TWO_OR_THREE_PART_REF.matcher(stripTwoOrThreePartParenCastsLoop(expression.replace("\"", "")));
+        String last = null;
+        while (matcher.find()) {
+            last = matcher.group(1);
+        }
+        if (last == null) {
+            return null;
+        }
+        String[] parts = last.split("\\.");
+        return parts.length >= 2 ? parts[parts.length - 1] : null;
+    }
+
+    private static String lineageKey(String alias, String col) {
+        return (alias + "." + col).replace("\"", "").toLowerCase(Locale.ROOT);
+    }
+
     @Override
     public ExecutionNode getExecutionTree(List<String[]> queryPlans) throws TouchstoneException, IOException, SQLException {
         String queryPlan = queryPlans.stream().map(queryPlanLine -> queryPlanLine[0]).collect(Collectors.joining());
@@ -158,6 +281,8 @@ public class PgAnalyzer extends AbstractAnalyzer {
         if (queryPlan.contains("= subquery")) {
             transformHashJoin2AggForOpenGauss(queryPlan);
         }
+        derivedColumnLineage.clear();
+        collectPlanAliasesAndDerivedLineage(PgJsonReader.getRootPath());
         return getExecutionTreeRes(PgJsonReader.skipNodes(PgJsonReader.getRootPath()));
     }
 
@@ -193,6 +318,10 @@ public class PgAnalyzer extends AbstractAnalyzer {
     }
 
     public ExecutionNode getExecutionTreeRes(StringBuilder currentNodePath) throws TouchstoneException, IOException, SQLException {
+        ExecutionNode recoveredSubPlanJoin = tryRecoverSubPlanSemiJoin(currentNodePath);
+        if (recoveredSubPlanJoin != null) {
+            return recoveredSubPlanJoin;
+        }
         ExecutionNode leftNode = null;
         ExecutionNode rightNode = null;
         int plansCount = PgJsonReader.readPlansCount(currentNodePath);
@@ -257,6 +386,141 @@ public class PgAnalyzer extends AbstractAnalyzer {
         return node;
     }
 
+    private ExecutionNode tryRecoverSubPlanSemiJoin(StringBuilder currentNodePath) throws TouchstoneException, IOException, SQLException {
+        String nodeType = PgJsonReader.readNodeType(currentNodePath);
+        if (nodeType == null || !nodeTypeRef.isFilterNode(nodeType)) {
+            return null;
+        }
+        String filterInfo = PgJsonReader.readFilterInfo(currentNodePath);
+        if (filterInfo == null || !SUBPLAN_ALTERNATIVE.matcher(filterInfo.trim()).matches()) {
+            return null;
+        }
+        int childCount = PgJsonReader.readPlansCount(currentNodePath);
+        if (childCount <= 0) {
+            return null;
+        }
+        StringBuilder correlatedChildPath = chooseCorrelatedSubPlanChild(currentNodePath);
+        if (correlatedChildPath == null) {
+            return null;
+        }
+        String rawPredicate = combineScanFilterPredicates(correlatedChildPath, PgJsonReader.readFilterInfo(correlatedChildPath));
+        String joinInfo = extractCorrelatedJoinInfo(
+                rawPredicate,
+                PgJsonReader.readAlias(currentNodePath.toString()),
+                PgJsonReader.readAlias(correlatedChildPath.toString()));
+        if (joinInfo == null) {
+            return null;
+        }
+
+        String tableName = resolveTableName(PgJsonReader.readTableName(currentNodePath.toString()));
+        aliasDic.put(PgJsonReader.readAlias(currentNodePath.toString()), tableName);
+
+        long outputRows = PgJsonReader.readRowCount(currentNodePath);
+        long baseRows = outputRows + PgJsonReader.readRowsRemoved(currentNodePath);
+        FilterNode leftNode = new FilterNode(currentNodePath + "#base", baseRows, null);
+        leftNode.setTableName(tableName);
+
+        ExecutionNode rightNode = getExecutionTreeRes(PgJsonReader.skipNodes(correlatedChildPath));
+        JoinNode joinNode = new JoinNode(currentNodePath + "#semi", outputRows, joinInfo, false, true, BigDecimal.ZERO);
+        joinNode.setLeftNode(leftNode);
+        joinNode.setRightNode(rightNode);
+        joinNode.setLeftInputRows(baseRows);
+        joinNode.setPreferredConstraintChainTable(tableName);
+        joinNode.setRightInputRows(resolveCorrelatedSubPlanInputRows(currentNodePath, correlatedChildPath, rightNode));
+        return joinNode;
+    }
+
+    private StringBuilder chooseCorrelatedSubPlanChild(StringBuilder parentPath) {
+        String outerAlias = PgJsonReader.readAlias(parentPath.toString());
+        StringBuilder best = null;
+        long bestRows = Long.MIN_VALUE;
+        int childCount = PgJsonReader.readPlansCount(parentPath);
+        for (int i = 0; i < childCount; i++) {
+            StringBuilder child = new StringBuilder(parentPath).append("['Plans'][").append(i).append("]");
+            String merged = combineScanFilterPredicates(child, PgJsonReader.readFilterInfo(child));
+            if (merged == null || outerAlias == null || !merged.contains(outerAlias + ".")) {
+                continue;
+            }
+            long rows = scoreCorrelatedSubPlanChild(child);
+            if (rows > bestRows) {
+                best = child;
+                bestRows = rows;
+            }
+        }
+        if (best != null) {
+            return best;
+        }
+        if (childCount == 0) {
+            return null;
+        }
+        return new StringBuilder(parentPath).append("['Plans'][").append(childCount - 1).append("]");
+    }
+
+    private long scoreCorrelatedSubPlanChild(StringBuilder childPath) {
+        long preferred = readJoinInputRowCount(new StringBuilder(childPath));
+        if (preferred > 0) {
+            return preferred;
+        }
+        return PgJsonReader.readRowCount(childPath);
+    }
+
+    private long resolveCorrelatedSubPlanInputRows(StringBuilder parentPath,
+                                                   StringBuilder correlatedChildPath,
+                                                   ExecutionNode rightNode) {
+        long direct = scoreCorrelatedSubPlanChild(correlatedChildPath);
+        if (direct > 0) {
+            return direct;
+        }
+        int childCount = PgJsonReader.readPlansCount(parentPath);
+        for (int i = 0; i < childCount; i++) {
+            StringBuilder sibling = new StringBuilder(parentPath).append("['Plans'][").append(i).append("]");
+            if (sibling.toString().equals(correlatedChildPath.toString())) {
+                continue;
+            }
+            long siblingRows = scoreCorrelatedSubPlanChild(sibling);
+            if (siblingRows > 0) {
+                return siblingRows;
+            }
+        }
+        return rightNode != null ? rightNode.getOutputRows() : 0L;
+    }
+
+    private String extractCorrelatedJoinInfo(String predicate, String outerAlias, String innerAlias) {
+        if (predicate == null || outerAlias == null || innerAlias == null) {
+            return null;
+        }
+        String normalized = stripSimpleTypeCasts(stripTwoOrThreePartParenCastsLoop(predicate));
+        Matcher matcher = SIMPLE_EQ_PREDICATE.matcher(normalized);
+        while (matcher.find()) {
+            String left = qualifyCorrelatedRef(matcher.group(1), innerAlias);
+            String right = qualifyCorrelatedRef(matcher.group(2), innerAlias);
+            boolean leftOuter = left.startsWith(outerAlias + ".");
+            boolean rightOuter = right.startsWith(outerAlias + ".");
+            if ((leftOuter ^ rightOuter) && !isLiteralPredicateOperand(left) && !isLiteralPredicateOperand(right)) {
+                return "Index Cond: (" + left + " = " + right + ")";
+            }
+        }
+        return null;
+    }
+
+    private static String qualifyCorrelatedRef(String ref, String innerAlias) {
+        if (ref == null || ref.indexOf('.') >= 0 || isLiteralPredicateOperand(ref)) {
+            return ref;
+        }
+        return innerAlias + "." + ref;
+    }
+
+    private static boolean isLiteralPredicateOperand(String ref) {
+        return ref != null && (ref.startsWith("'") || ref.chars().allMatch(Character::isDigit));
+    }
+
+    private static String stripSimpleTypeCasts(String expr) {
+        if (expr == null) {
+            return null;
+        }
+        return expr.replaceAll("::\\s*[a-zA-Z0-9_]+(?:\\s+[a-zA-Z0-9_]+)*(?:\\[\\])?", "");
+    }
+
 
     private ExecutionNode transferSubPlan2AntiJoin(StringBuilder path) {
         //todo multiple subPlans
@@ -302,14 +566,43 @@ public class PgAnalyzer extends AbstractAnalyzer {
         if (nodeType == null || !nodeTypeRef.isIndexScanNode(nodeType)) {
             return filterFromPlan;
         }
+        LinkedHashSet<String> predicates = new LinkedHashSet<>();
         String indexCond = PgJsonReader.readIndexCond(path);
-        if (indexCond == null || indexCond.isEmpty()) {
+        if (indexCond != null && !indexCond.isEmpty()) {
+            predicates.add(indexCond);
+        }
+        if ("Bitmap Heap Scan".equals(nodeType)) {
+            collectBitmapIndexPredicates(path, predicates);
+        }
+        if (predicates.isEmpty()) {
             return filterFromPlan;
         }
-        if (filterFromPlan == null || filterFromPlan.isEmpty()) {
-            return indexCond;
+        if (filterFromPlan != null && !filterFromPlan.isEmpty()) {
+            predicates.add(filterFromPlan);
         }
-        return "(" + indexCond + " AND " + filterFromPlan + ")";
+        if (predicates.size() == 1) {
+            return predicates.iterator().next();
+        }
+        return "(" + String.join(" AND ", predicates) + ")";
+    }
+
+    private void collectBitmapIndexPredicates(StringBuilder path, Set<String> predicates) {
+        int childCount = PgJsonReader.readPlansCount(path);
+        for (int i = 0; i < childCount; i++) {
+            StringBuilder childPath = new StringBuilder(path).append("['Plans'][").append(i).append("]");
+            String childType = PgJsonReader.readNodeType(childPath);
+            if (childType == null) {
+                continue;
+            }
+            String indexCond = PgJsonReader.readIndexCond(childPath);
+            if (indexCond != null && !indexCond.isEmpty()) {
+                predicates.add(indexCond);
+            }
+            if ("Bitmap Index Scan".equals(childType) || !nodeTypeRef.isPassNode(childType)) {
+                continue;
+            }
+            collectBitmapIndexPredicates(childPath, predicates);
+        }
     }
 
     /**
@@ -512,28 +805,35 @@ public class PgAnalyzer extends AbstractAnalyzer {
         System.out.println(String.format("[NJDC_DEBUG] JOIN 类型: %s, OUTER=%s, ANTI=%s, SEMI=%s, INNER=%s, rowCount=%d, joinInfo=%s",
             joinType, isOuterJoin, isAntiJoinCheck, isSemiJoinCheck, isInnerJoin, rowCount, joinInfo));
         
+        StringBuilder leftChildPath = PgJsonReader.move2LeftChild(path);
+        StringBuilder rightChildPath = PgJsonReader.move2RightChild(path);
+        Long leftInputRows = null;
+        Long rightInputRows = null;
+        if (PgJsonReader.readPlansCount(path) >= 1) {
+            leftInputRows = (long) readJoinInputRowCount(leftChildPath);
+        }
+        if (PgJsonReader.readPlansCount(path) >= 2) {
+            rightInputRows = (long) readJoinInputRowCount(rightChildPath);
+        }
+
         BigDecimal pkDistinctProbability = BigDecimal.ZERO;
         if (PgJsonReader.isOutJoin(path)) {
-            StringBuilder leftChildPath = PgJsonReader.skipNodes(PgJsonReader.move2LeftChild(path));
-            StringBuilder rightChildPath = PgJsonReader.skipNodes(PgJsonReader.move2RightChild(path));
             int pkRowCount, fkRowCount;
             if (PgJsonReader.isRightOuterJoin(path)) {
-                pkRowCount = PgJsonReader.readRowCount(rightChildPath);
-                fkRowCount = PgJsonReader.readRowCount(leftChildPath);
+                pkRowCount = Math.toIntExact(rightInputRows == null ? 0L : rightInputRows);
+                fkRowCount = Math.toIntExact(leftInputRows == null ? 0L : leftInputRows);
             } else if (PgJsonReader.isLeftOuterJoin(path)) {
-                fkRowCount = PgJsonReader.readRowCount(rightChildPath);
-                pkRowCount = PgJsonReader.readRowCount(leftChildPath);
+                fkRowCount = Math.toIntExact(rightInputRows == null ? 0L : rightInputRows);
+                pkRowCount = Math.toIntExact(leftInputRows == null ? 0L : leftInputRows);
             } else {
                 throw new UnsupportedOperationException();
             }
-            pkDistinctProbability = BigDecimal.valueOf(pkRowCount + fkRowCount - rowCount)
-                    .divide(BigDecimal.valueOf(fkRowCount), DECIMAL_DIVIDE_SCALE, RoundingMode.HALF_UP);
+            pkDistinctProbability = computeOuterJoinPkDistinctProbability(path, pkRowCount, fkRowCount, rowCount);
             System.out.println(String.format("[NJDC_DEBUG] OUTER JOIN: pkRowCount=%d, fkRowCount=%d, NJDC_prob=%.4f",
                 pkRowCount, fkRowCount, pkDistinctProbability.doubleValue()));
-            rowCount = fkRowCount;
         } else if (PgJsonReader.isAntiJoin(path)) {
-            StringBuilder leftChildPath = PgJsonReader.skipNodes(PgJsonReader.move2LeftChild(path));
-            rowCount = PgJsonReader.readRowCount(leftChildPath) - rowCount;
+            StringBuilder antiJoinLeftPath = PgJsonReader.skipNodes(PgJsonReader.move2LeftChild(path));
+            rowCount = PgJsonReader.readRowCount(antiJoinLeftPath) - rowCount;
             System.out.println(String.format("[NJDC_DEBUG] ANTI JOIN: NJDC_prob=%.4f", pkDistinctProbability.doubleValue()));
         } else {
             // INNER JOIN 或其他类型
@@ -541,7 +841,37 @@ public class PgAnalyzer extends AbstractAnalyzer {
         }
         boolean isSemiJoin = PgJsonReader.isAntiJoin(path) || PgJsonReader.isSemiJoin(path);
         System.out.println(String.format("[NJDC_DEBUG] 最终 NJDC_prob=%.4f\n", pkDistinctProbability.doubleValue()));
-        return new JoinNode(path.toString(), rowCount, joinInfo, PgJsonReader.isAntiJoin(path), isSemiJoin, pkDistinctProbability);
+        JoinNode joinNode = new JoinNode(path.toString(), rowCount, joinInfo, PgJsonReader.isAntiJoin(path), isSemiJoin, pkDistinctProbability);
+        joinNode.setLeftInputRows(leftInputRows);
+        joinNode.setRightInputRows(rightInputRows);
+        return joinNode;
+    }
+
+    private int readJoinInputRowCount(StringBuilder childPath) {
+        StringBuilder skippedChildPath = PgJsonReader.skipNodes(new StringBuilder(childPath));
+        int skippedRows = PgJsonReader.readRowCount(skippedChildPath);
+        if (skippedRows > 0) {
+            return skippedRows;
+        }
+        int passNodeRows = PgJsonReader.readRowCount(childPath);
+        if (passNodeRows > 0 && !Objects.equals(childPath.toString(), skippedChildPath.toString())) {
+            logger.warn("JOIN input row count from skipped child is 0; use pass node {} rows={} instead, childPath={}, skippedPath={}",
+                    PgJsonReader.readNodeType(childPath), passNodeRows, childPath, skippedChildPath);
+            return passNodeRows;
+        }
+        return skippedRows;
+    }
+
+    private BigDecimal computeOuterJoinPkDistinctProbability(StringBuilder path, int pkRowCount, int fkRowCount, int outputRowCount) {
+        if (fkRowCount <= 0) {
+            logger.warn("OUTER JOIN distinct probability denominator is 0; use 0 instead. nodeType={}, joinType outer=true, pkRows={}, fkRows={}, outputRows={}, path={}",
+                    PgJsonReader.readNodeType(path), pkRowCount, fkRowCount, outputRowCount, path);
+            return BigDecimal.ZERO;
+        }
+        long matchedRows = Math.max(0L, (long) pkRowCount + fkRowCount - outputRowCount);
+        matchedRows = Math.min(matchedRows, fkRowCount);
+        return BigDecimal.valueOf(matchedRows)
+                .divide(BigDecimal.valueOf(fkRowCount), DECIMAL_DIVIDE_SCALE, RoundingMode.HALF_UP);
     }
 
     String readDeep(StringBuilder path) {
@@ -598,13 +928,11 @@ public class PgAnalyzer extends AbstractAnalyzer {
         FilterNode aggFilter = null;
         if (groupKey != null) {
             //todo multiple table name
-            groupKeyInfo = groupKey.stream().map(this::transColumnName).collect(Collectors.joining(";"));
-            String[] splitColumns = groupKey.get(0).split("\\.");
-            if (splitColumns.length == 2) {
-                tableName = aliasDic.get(splitColumns[0]);
-            } else {
-                tableName = splitColumns[0] + "." + splitColumns[1];
-            }
+            List<String> normalizedGroupKeys = groupKey.stream()
+                    .map(this::normalizeAggregateGroupKey)
+                    .toList();
+            groupKeyInfo = String.join(";", normalizedGroupKeys);
+            tableName = resolveTableNameFromGroupKey(normalizedGroupKeys.get(0));
             if (aggFilterInfo != null) {
                 aggFilter = new FilterNode(path.toString(), rowCount, transColumnName(aggFilterInfo));
                 rowCount += PgJsonReader.readRowsRemoved(path);
@@ -615,12 +943,40 @@ public class PgAnalyzer extends AbstractAnalyzer {
                 aggFilterInfo = "(" + removeRedundancy(PgJsonReader.readOutput(path).get(0), false) + "=" + subPlanIndex + ")";
                 aggFilter = new FilterNode(path.toString(), 1, transColumnName(aggFilterInfo));
                 tableName = getTableNameFromOutput(path);
+            } else {
+                String distinctGroupKey = extractDistinctGroupKeyFromAggregateOutput(path);
+                if (distinctGroupKey != null) {
+                    groupKeyInfo = normalizeAggregateGroupKey(distinctGroupKey);
+                    tableName = resolveTableNameFromGroupKey(groupKeyInfo);
+                }
             }
         }
         AggNode node = new AggNode(path.toString(), rowCount, groupKeyInfo);
         node.setTableName(tableName);
         node.setAggFilter(aggFilter);
+        node.setSyntheticDistinctAggregate(groupKey == null && groupKeyInfo != null && aggFilter == null);
+        if (aggFilter != null && aggFilter.getInfo() != null && COUNT_GT_LITERAL.matcher(aggFilter.getInfo().trim()).matches()) {
+            node.setAggregateFilterKind(AggNode.AggregateFilterKind.COUNT_GT_LITERAL);
+        }
         return node;
+    }
+
+    private String extractDistinctGroupKeyFromAggregateOutput(StringBuilder path) {
+        List<String> outputs = PgJsonReader.readOutput(path);
+        if (outputs == null) {
+            return null;
+        }
+        for (String output : outputs) {
+            if (output == null) {
+                continue;
+            }
+            String normalized = stripTwoOrThreePartParenCastsLoop(transColumnName(output));
+            Matcher matcher = COUNT_DISTINCT_OUTPUT.matcher(normalized);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+        return null;
     }
 
     private ExecutionNode createParentAggNode(StringBuilder parentPath, StringBuilder aggPath) throws TouchstoneException, IOException, SQLException {
@@ -649,11 +1005,37 @@ public class PgAnalyzer extends AbstractAnalyzer {
         } else {
             throw new UnsupportedOperationException();
         }
-        groupKey = groupKey.stream().map(this::transColumnName).toList();
+        groupKey = groupKey.stream().map(this::normalizeAggregateGroupKey).toList();
         AggNode node = new AggNode(aggPath.toString(), rowCount, String.join(";", groupKey));
         node.setAggFilter(new FilterNode(aggPath.toString(), rowsAfterFilter, transColumnName(aggFilterInfo)));
         node.setTableName(tableName);
         return node;
+    }
+
+    private String normalizeAggregateGroupKey(String groupKey) {
+        return stripTwoOrThreePartParenCastsLoop(transColumnName(groupKey));
+    }
+
+    private String resolveTableNameFromGroupKey(String groupKey) {
+        if (groupKey == null) {
+            return null;
+        }
+        Matcher matcher = TWO_OR_THREE_PART_REF.matcher(groupKey.replace("\"", ""));
+        String lastColumnRef = null;
+        while (matcher.find()) {
+            lastColumnRef = matcher.group(1);
+        }
+        if (lastColumnRef == null) {
+            return null;
+        }
+        String[] splitColumns = lastColumnRef.split("\\.");
+        if (splitColumns.length == 2) {
+            return aliasDic.get(splitColumns[0]);
+        }
+        if (splitColumns.length >= 3) {
+            return splitColumns[0] + "." + splitColumns[1];
+        }
+        return null;
     }
 
     private ExecutionNode getExecutionNode(StringBuilder path) throws TouchstoneException {
@@ -669,7 +1051,7 @@ public class PgAnalyzer extends AbstractAnalyzer {
         } else if (nodeTypeRef.isAggregateNode(nodeType)) {
             return getAggregationNode(path, rowCount);
         } else {
-            throw new UnsupportedOperationException();
+            throw new UnsupportedOperationException("Unsupported PG/KingBase plan node type: " + nodeType + ", path=" + path);
         }
     }
 
@@ -694,7 +1076,13 @@ public class PgAnalyzer extends AbstractAnalyzer {
                 Matcher m = CanonicalColumnName.matcher(splitResults[i]);
                 while (m.find()) {
                     String[] tableNameAndColName = m.group().split("\\.");
-                    m.appendReplacement(filter, aliasDic.get(tableNameAndColName[0].replace("\"", "")) + "." + tableNameAndColName[1].replace("\"", ""));
+                    String replacement = expandTwoPartColumnRef(
+                            tableNameAndColName[0].replace("\"", ""),
+                            tableNameAndColName[1].replace("\"", ""));
+                    if (replacement == null) {
+                        replacement = m.group();
+                    }
+                    m.appendReplacement(filter, Matcher.quoteReplacement(replacement));
                 }
                 m.appendTail(filter);
                 splitResults[i] = filter.toString();
@@ -731,25 +1119,112 @@ public class PgAnalyzer extends AbstractAnalyzer {
     }
 
     /**
-     * 在 {@link #transColumnName} 之前调用：大整型加引号。
-     * 对 {@code ::text = ANY(...::text[])} 等当前无法建模的片段打 ERROR 日志、保留原文，便于解析失败时暴露 UnsupportedSelect。
+     * 在 {@link #transColumnName} 之前调用：大整型加引号，并剔除主计划中不可解析的 InitPlan
+     * {@code ANY((ARRAY[$n])::text[])} 过滤片段。该片段对应的真实值域不在当前 operator_info 内，
+     * 保留会导致解析器失败；剔除后仍可保留同一 Filter 中其他可建模谓词。
      */
     private String normalizeUnsupportedSelectPredicates(String expr) {
         if (expr == null) {
             return null;
         }
-        warnIfUnmodeledTextEqAnyPredicate(expr);
-        return quoteLargeUnquotedIntegerLiterals(expr);
+        String normalized = elideUnmodeledTextEqAnyPredicates(expr);
+        normalized = elideUnmodeledSubPlanAlternatives(normalized);
+        if (normalized == null || normalized.isBlank()) {
+            return null;
+        }
+        return quoteLargeUnquotedIntegerLiterals(normalized);
     }
 
-    private void warnIfUnmodeledTextEqAnyPredicate(String expr) {
+    private String elideUnmodeledTextEqAnyPredicates(String expr) {
+        String out = expr;
         Matcher m = PG_TEXT_EQ_ANY_TEXTARRAY.matcher(expr);
         while (m.find()) {
-            logger.error(
-                    "Unmodeled filter: (= ANY on ::text[] / subplan array); parser does not support this shape. "
-                            + "Original substring left unchanged; expect UnsupportedSelect. matched: {}",
+            logger.warn(
+                    "Unmodeled filter elided: (= ANY on InitPlan ARRAY[$n]::text[]). "
+                            + "Use a separate subquery/rewritten SQL constraint for this predicate. matched: {}",
                     m.group());
+            out = removeConjunct(out, m.group());
         }
+        return normalizeEmptyParens(out);
+    }
+
+    private String elideUnmodeledSubPlanAlternatives(String expr) {
+        if (expr == null) {
+            return null;
+        }
+        String out = expr;
+        Matcher m = SUBPLAN_ALTERNATIVE.matcher(expr);
+        while (m.find()) {
+            logger.warn(
+                    "Unmodeled filter elided: planner SubPlan alternative placeholder. "
+                            + "Use the rewritten EXISTS/semi-join predicate for this filter when possible. matched: {}",
+                    m.group());
+            out = removeConjunct(out, m.group());
+        }
+        return normalizeEmptyParens(out);
+    }
+
+    private static String removeConjunct(String expr, String conjunct) {
+        String quoted = Pattern.quote(conjunct);
+        String out = expr.replaceFirst("(?i)\\s+AND\\s+" + quoted, "");
+        if (!out.equals(expr)) {
+            return out;
+        }
+        out = expr.replaceFirst("(?i)" + quoted + "\\s+AND\\s+", "");
+        if (!out.equals(expr)) {
+            return out;
+        }
+        return expr.replace(conjunct, "");
+    }
+
+    private static String normalizeEmptyParens(String expr) {
+        if (expr == null) {
+            return null;
+        }
+        String out = expr.trim();
+        if (out.replace("(", "").replace(")", "").isBlank()) {
+            return null;
+        }
+        while (hasRedundantOuterWrapper(out)) {
+            out = out.substring(1, out.length() - 1).trim();
+        }
+        return out.isBlank() ? null : out;
+    }
+
+    private static boolean hasRedundantOuterWrapper(String s) {
+        if (s == null || s.length() < 4 || s.charAt(0) != '(' || s.charAt(s.length() - 1) != ')') {
+            return false;
+        }
+        String inner = s.substring(1, s.length() - 1).trim();
+        return inner.length() >= 2 && inner.charAt(0) == '(' && inner.charAt(inner.length() - 1) == ')'
+                && outerParensWrapWholeExpression(inner);
+    }
+
+    private static boolean outerParensWrapWholeExpression(String s) {
+        int depth = 0;
+        boolean inSingleQuote = false;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\'') {
+                inSingleQuote = !inSingleQuote;
+                continue;
+            }
+            if (inSingleQuote) {
+                continue;
+            }
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0 && i < s.length() - 1) {
+                    return false;
+                }
+                if (depth < 0) {
+                    return false;
+                }
+            }
+        }
+        return depth == 0;
     }
 
     private static String quoteLargeUnquotedIntegerLiterals(String s) {
@@ -782,8 +1257,54 @@ public class PgAnalyzer extends AbstractAnalyzer {
         return t;
     }
 
+    private static String stripRedundantColumnParensLoop(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s;
+        String prev;
+        do {
+            prev = t;
+            t = REDUNDANT_TWO_OR_THREE_PART_PARENS.matcher(t).replaceAll("$1");
+            t = REDUNDANT_SINGLE_IDENT_PARENS.matcher(t).replaceAll("$1");
+        } while (!t.equals(prev));
+        return t;
+    }
+
+    private static String stripSingleIdentParenCastsLoop(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s;
+        String prev;
+        do {
+            prev = t;
+            t = SINGLE_IDENT_PAREN_CAST.matcher(t).replaceAll("$1");
+        } while (!t.equals(prev));
+        return t;
+    }
+
     /** 将 {@code alias.col} 按 {@link #aliasDic} 展开为 {@code [schema, table, col]}；已是三段则原样返回。 */
     private String[] ensureThreePartJoinRef(String ref) {
+        if (ref == null) {
+            return null;
+        }
+        String cleaned = ref.replace("\"", "");
+        String[] parts = cleaned.split("\\.");
+        if (parts.length == 3) {
+            return parts;
+        }
+        if (parts.length == 2) {
+            String[] derived = derivedColumnLineage.get(lineageKey(parts[0], parts[1]));
+            if (derived != null) {
+                return Arrays.copyOf(derived, derived.length);
+            }
+            return ensureThreePartBaseRef(cleaned);
+        }
+        return null;
+    }
+
+    private String[] ensureThreePartBaseRef(String ref) {
         if (ref == null) {
             return null;
         }
@@ -802,6 +1323,15 @@ public class PgAnalyzer extends AbstractAnalyzer {
             }
         }
         return null;
+    }
+
+    private String expandTwoPartColumnRef(String alias, String col) {
+        String[] derived = derivedColumnLineage.get(lineageKey(alias, col));
+        if (derived != null) {
+            return String.join(".", derived);
+        }
+        String mapped = aliasDic.get(alias);
+        return mapped == null ? null : mapped + "." + col;
     }
 
     private static int countTopLevelSingleEquals(String s) {
@@ -952,8 +1482,8 @@ public class PgAnalyzer extends AbstractAnalyzer {
         PgJsonReader.setReadContext(queryPlanString);
         String queryPlanMainTree = PgJsonReader.readTheWholePlan();
         StringBuilder path = PgJsonReader.getRootPath();
+        List<List<String[]>> queryPlans = new LinkedList<>();
         if (PgJsonReader.hasInitPlan(path)) {
-            List<List<String[]>> queryPlans = new LinkedList<>();
             for (int i = 0; i < PgJsonReader.readPlansCount(path); i++) {
                 String subPlanName = PgJsonReader.readSubPlanIndex(path, i);
                 if (subPlanName != null) {
@@ -966,11 +1496,54 @@ public class PgAnalyzer extends AbstractAnalyzer {
                     queryPlans.add(Collections.singletonList(new String[]{PgJsonReader.formatPlan(subQueryPlan)}));
                 }
             }
-            queryPlans.add(Collections.singletonList(new String[]{queryPlanMainTree}));
-            return queryPlans;
-        } else {
-            return Collections.singletonList(queryPlan);
         }
+        queryPlans.addAll(splitSetOperationBranches(queryPlanMainTree));
+        if (queryPlans.isEmpty()) {
+            queryPlans.add(Collections.singletonList(new String[]{queryPlanMainTree}));
+        }
+        return queryPlans;
+    }
+
+    private List<List<String[]>> splitSetOperationBranches(String queryPlanMainTree) {
+        PgJsonReader.setReadContext(queryPlanMainTree);
+        StringBuilder setOpPath = findTopLevelSetOperationAppend(PgJsonReader.getRootPath());
+        if (setOpPath == null) {
+            return Collections.singletonList(Collections.singletonList(new String[]{queryPlanMainTree}));
+        }
+        List<List<String[]>> split = new ArrayList<>();
+        int childCount = PgJsonReader.readPlansCount(setOpPath);
+        for (int i = 0; i < childCount; i++) {
+            String branchPlan = PgJsonReader.readPlan(setOpPath, i);
+            split.add(Collections.singletonList(new String[]{PgJsonReader.formatPlan(branchPlan)}));
+        }
+        return split;
+    }
+
+    private StringBuilder findTopLevelSetOperationAppend(StringBuilder path) {
+        StringBuilder current = new StringBuilder(path);
+        while (true) {
+            String nodeType = PgJsonReader.readNodeType(current);
+            if (nodeType == null) {
+                return null;
+            }
+            if ("Append".equals(nodeType) && !PgJsonReader.isPartitionLikeAppend(current)) {
+                return current;
+            }
+            if (!isSetOperationWrapperNode(current, nodeType)) {
+                return null;
+            }
+            current = PgJsonReader.move2LeftChild(current);
+        }
+    }
+
+    private boolean isSetOperationWrapperNode(StringBuilder path, String nodeType) {
+        if (PgJsonReader.readPlansCount(path) != 1) {
+            return false;
+        }
+        if (PgJsonReader.isSkippablePassNode(path)) {
+            return true;
+        }
+        return "Aggregate".equals(nodeType) || "Result".equals(nodeType) || "WindowAgg".equals(nodeType);
     }
 
     @Override
@@ -1020,6 +1593,35 @@ public class PgAnalyzer extends AbstractAnalyzer {
     @Override
     public LogicNode analyzeSelectOperator(String operatorInfo) throws Exception {
         String normalized = operatorInfo == null ? null : normalizeUnsupportedSelectPredicates(operatorInfo);
-        return parser.parseSelectOperatorInfo(normalized != null ? normalized : operatorInfo);
+        String input = normalized != null ? normalized : operatorInfo;
+        try {
+            return parser.parseSelectOperatorInfo(input);
+        } catch (Exception firstError) {
+            String fallback = normalizeSingleTablePredicateForParser(input);
+            if (fallback == null || fallback.equals(input)) {
+                throw firstError;
+            }
+            return parser.parseSelectOperatorInfo(fallback);
+        }
+    }
+
+    private String normalizeSingleTablePredicateForParser(String operatorInfo) {
+        if (operatorInfo == null) {
+            return null;
+        }
+        String normalized = normalizePlanCasts(operatorInfo);
+        normalized = normalizeTripleParenCompare(normalized);
+        normalized = stripSimpleTypeCasts(stripTwoOrThreePartParenCastsLoop(normalized));
+        normalized = stripSingleIdentParenCastsLoop(normalized);
+        normalized = stripRedundantColumnParensLoop(normalized);
+        normalized = normalized.replaceAll("'([^']*)'\\s*::\\s*[a-zA-Z0-9_.]+(?:\\s+[a-zA-Z0-9_]+)*(?:\\[\\])?", "'$1'");
+        normalized = normalized.trim();
+        if (normalized.isEmpty()) {
+            return normalized;
+        }
+        if (countTopLevelSingleEquals(normalized) == 1 && !(normalized.startsWith("(") && normalized.endsWith(")"))) {
+            normalized = "(" + normalized + ")";
+        }
+        return normalized;
     }
 }

@@ -14,10 +14,13 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.ResourceBundle;
 import java.util.Set;
+import java.util.IdentityHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,6 +37,10 @@ import ruc.db.generator.constraintchain.agg.ConstraintChainAggregateNode;
 import ruc.db.generator.constraintchain.filter.ConstraintChainFilterNode;
 import ruc.db.generator.constraintchain.filter.LogicNode;
 import ruc.db.generator.constraintchain.filter.Parameter;
+import ruc.db.generator.constraintchain.filter.BoolExprType;
+import ruc.db.generator.constraintchain.filter.operation.CompareOperator;
+import ruc.db.generator.constraintchain.filter.operation.UniVarFilterOperation;
+import ruc.db.analyzer.online.adapter.pg.PgJsonReader;
 import ruc.db.generator.constraintchain.join.ConstraintChainFkJoinNode;
 import ruc.db.analyzer.online.adapter.pg.PlanJsonTransforms;
 import ruc.db.generator.constraintchain.join.ConstraintChainPkJoinNode;
@@ -55,6 +62,19 @@ public class QueryAnalyzer {
     private static final int SKIP_JOIN_TAG = -1;
     private static final int STOP_CONSTRUCT = -2;
     private static final int SKIP_SELF_JOIN = -3;
+    private static final Pattern SUBPLAN_ALTERNATIVE_PLACEHOLDER = Pattern.compile(
+            "^\\(*\\s*alternatives:\\s*SubPlan\\s+\\d+\\s+or\\s+hashed\\s+SubPlan\\s+\\d+\\s*\\)*$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern CANONICAL_COLUMN_REF = Pattern.compile(
+            "([a-zA-Z_][a-zA-Z0-9_$]*\\.[a-zA-Z_][a-zA-Z0-9_$]*\\.[a-zA-Z_][a-zA-Z0-9_$]*)");
+    private static final Pattern QUALIFIED_COLUMN_REF = Pattern.compile(
+            "([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){1,2})");
+    private static final Pattern COUNT_GT_LITERAL = Pattern.compile(
+            "^\\(*\\s*count\\s*\\(\\s*\\*\\s*\\)\\s*>\\s*\\d+\\s*\\)*$",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern SIMPLE_SINGLE_TABLE_EQ_LITERAL = Pattern.compile(
+            "^\\(*\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){0,2})\\s*=\\s*'([^']*)'\\s*\\)*$",
+            Pattern.CASE_INSENSITIVE);
     private final AbstractAnalyzer abstractAnalyzer;
     private final DbConnector dbConnector;
     protected double skipNodeThreshold = 0.01;
@@ -95,21 +115,16 @@ public class QueryAnalyzer {
         if (TableManager.getInstance().isRefTable(pkTable, pkCol, fkTable + "." + fkCol)) {
             return false;
         }
-        int leftTableNdv;
-        int rightTableNdv;
-        if (pkCol.contains(",")) {
-            leftTableNdv = dbConnector.getMultiColNdv(pkTable, pkCol);
-            rightTableNdv = dbConnector.getMultiColNdv(fkTable, fkCol);
-        } else {
-            leftTableNdv = ColumnManager.getInstance().getNdv(pkTable + CANONICAL_NAME_CONTACT_SYMBOL + pkCol);
-            rightTableNdv = ColumnManager.getInstance().getNdv(fkTable + CANONICAL_NAME_CONTACT_SYMBOL + fkCol);
-        }
+        int leftTableNdv = estimateJoinKeyNdv(pkTable, pkCol);
+        int rightTableNdv = estimateJoinKeyNdv(fkTable, fkCol);
         long leftTableSize = TableManager.getInstance().getTableSize(pkTable);
         long rightTableSize = TableManager.getInstance().getTableSize(fkTable);
         boolean inferredPkOnLeft;
         if (leftTableNdv == rightTableNdv) {
             if (leftTableSize == rightTableSize) {
-                throw new TouchstoneException("两个表无法区分主外键");
+                logger.warn("Join direction ambiguous between {}.{} and {}.{} (same table size and NDV); use FK_JOIN/GENERIC branch instead",
+                        pkTable, pkCol, fkTable, fkCol);
+                return false;
             }
             inferredPkOnLeft = leftTableSize < rightTableSize;
         } else {
@@ -126,6 +141,40 @@ public class QueryAnalyzer {
         return inferredPkOnLeft;
     }
 
+    private int estimateJoinKeyNdv(String tableName, String joinCols) throws SQLException {
+        long tableSize;
+        try {
+            tableSize = Math.max(1L, TableManager.getInstance().getTableSize(tableName));
+        } catch (CannotFindSchemaException e) {
+            tableSize = 1L;
+        }
+        if (joinCols == null || joinCols.isBlank()) {
+            return (int) Math.min(Integer.MAX_VALUE, tableSize);
+        }
+        if (!joinCols.contains(",")) {
+            return Math.max(1, ColumnManager.getInstance().getNdv(tableName + CANONICAL_NAME_CONTACT_SYMBOL + joinCols.trim()));
+        }
+        if (dbConnector != null) {
+            return Math.max(1, dbConnector.getMultiColNdv(tableName, joinCols));
+        }
+        long estimate = 1L;
+        for (String col : joinCols.split(",")) {
+            String trimmed = col.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String canonical = trimmed.contains(".") ? trimmed : tableName + CANONICAL_NAME_CONTACT_SYMBOL + trimmed;
+            int ndv = Math.max(1, ColumnManager.getInstance().getNdv(canonical));
+            if (estimate > tableSize / ndv) {
+                estimate = tableSize;
+                break;
+            }
+            estimate *= ndv;
+        }
+        estimate = Math.max(1L, Math.min(tableSize, estimate));
+        return (int) Math.min(Integer.MAX_VALUE, estimate);
+    }
+
     private static boolean isDeclaredRefJoin(String localTable, String localCol, String externalTable, String externalCol) {
         try {
             return TableManager.getInstance().isRefTable(localTable, localCol, externalTable + "." + externalCol)
@@ -136,19 +185,39 @@ public class QueryAnalyzer {
     }
 
     /**
-     * FK_JOIN 节点上 {@link JoinConstraintJoinModel} 的判定（与 {@link #analyzeJoinNode} 中逻辑一致）：仅当存在 schema 参照边且参照键为参照表<strong>完整主键</strong>时为
-     * {@link JoinConstraintJoinModel#PK_FK}，否则为 {@link JoinConstraintJoinModel#GENERIC}（计划基数、桶权重、反域等）。
+     * FK_JOIN 节点上 {@link JoinConstraintJoinModel} 的判定（与 {@link #analyzeJoinNode} 中逻辑一致）：仅当参照键为参照表
+     * <strong>完整主键</strong>时为 {@link JoinConstraintJoinModel#PK_FK}，否则为 {@link JoinConstraintJoinModel#GENERIC}
+     * （计划基数、桶权重、反域等）。
      */
     public static JoinConstraintJoinModel resolveJoinModelForFkJoinNode(
             String localTable, String localCol, String externalTable, String externalCol) {
         boolean declaredRefJoin = isDeclaredRefJoin(localTable, localCol, externalTable, externalCol);
-        boolean pkFkJoinModel = declaredRefJoin && refJoinKeyIsExactlyTablePrimaryKey(externalTable, externalCol);
-        if (declaredRefJoin && !pkFkJoinModel) {
+        boolean pkFkJoinModel = refJoinKeyIsExactlyTablePrimaryKey(externalTable, externalCol);
+        if (!pkFkJoinModel) {
             logger.info(
-                    "FK_JOIN 参照侧 {} 的 join 键 [{}] 非该表完整主键，使用 joinModel=GENERIC（计划基数 targetJoinRows 等）；schema 仍保留外键声明。",
+                    "FK_JOIN 参照侧 {} 的 join 键 [{}] 非该表完整主键，使用 joinModel=GENERIC（计划基数 targetJoinRows 等）；不写入物理 schema foreignKeys。",
+                    externalTable, externalCol);
+        } else if (!declaredRefJoin) {
+            logger.debug(
+                    "FK_JOIN 参照侧 {} 的 join 键 [{}] 为完整主键，使用 joinModel=PK_FK 并登记为生成阶段物理依赖。",
                     externalTable, externalCol);
         }
         return pkFkJoinModel ? JoinConstraintJoinModel.PK_FK : JoinConstraintJoinModel.GENERIC;
+    }
+
+    static void registerJoinReferenceForGeneration(
+            String localTable,
+            String localCol,
+            String externalTable,
+            String externalCol,
+            JoinConstraintJoinModel joinModel) throws TouchstoneException {
+        if (joinModel == JoinConstraintJoinModel.PK_FK) {
+            TableManager.getInstance().setTmpForeignKeys(localTable, localCol, externalTable, externalCol);
+        } else {
+            logger.debug(
+                    "Skip physical FK registration for GENERIC join: {}.{} -> {}.{}",
+                    localTable, localCol, externalTable, externalCol);
+        }
     }
 
     /**
@@ -208,7 +277,32 @@ public class QueryAnalyzer {
     }
 
     private long analyzeSelectNode(ExecutionNode node, ConstraintChain constraintChain, long lastNodeLineCount) throws TouchstoneException {
-        LogicNode root = analyzeSelectInfo(node.getInfo());
+        if (node.getInfo() == null || node.getInfo().isBlank()) {
+            logger.warn("Skip filter node with empty/unmodeled predicate on table {}", node.getTableName());
+            return node.getOutputRows();
+        }
+        if (isUnmodeledSubPlanAlternative(node.getInfo())) {
+            logger.warn("Skip unmodeled SubPlan alternative filter on table {}: {}", node.getTableName(), node.getInfo());
+            return node.getOutputRows();
+        }
+        String predicateForAnalysis = node.getInfo();
+        if (node.getTableName() != null) {
+            boolean crossTablePredicate = referencesOtherTablesWithAliases(node.getInfo(), node.getTableName());
+            String localOnlyInfo = extractLocalOnlyFilterInfoWithAliases(node.getInfo(), node.getTableName());
+            if (localOnlyInfo == null || localOnlyInfo.isBlank()) {
+                if (crossTablePredicate) {
+                    logger.info("Skip cross-table filter predicate on {}: {}", node.getTableName(), node.getInfo());
+                    return node.getOutputRows();
+                }
+            } else {
+                predicateForAnalysis = localOnlyInfo;
+            }
+        }
+        LogicNode root = analyzeSelectInfo(predicateForAnalysis, node.getTableName());
+        if (node.getTableName() != null && !root.retainOnlyTableOperations(node.getTableName())) {
+            logger.info("Skip cross-table filter predicate on {}: {}", node.getTableName(), node.getInfo());
+            return node.getOutputRows();
+        }
         BigDecimal ratio = computeFilterProbability(node.getOutputRows(), lastNodeLineCount);
         ConstraintChainFilterNode filterNode = new ConstraintChainFilterNode(ratio, root);
         constraintChain.addNode(filterNode);
@@ -226,9 +320,23 @@ public class QueryAnalyzer {
             groupKeys = new ArrayList<>(Arrays.stream(node.getInfo().trim().split(";")).toList());
         }
         BigDecimal aggProbability = computeFilterProbability(node.getOutputRows(), lastNodeLineCount);
-        ConstraintChainAggregateNode aggregateNode = new ConstraintChainAggregateNode(groupKeys, aggProbability);
+        long aggregateOutputRows = node.getOutputRows();
+        boolean recoverHavingCountFilter = shouldRecoverCountGtLiteralAggregate(node);
+        if (recoverHavingCountFilter && node.getAggFilter() != null) {
+            aggregateOutputRows = node.getAggFilter().getOutputRows();
+            aggProbability = computeFilterProbability(aggregateOutputRows, lastNodeLineCount);
+        } else if (node.isSyntheticDistinctAggregate() && groupKeys != null && groupKeys.size() == 1) {
+            aggregateOutputRows = estimateSyntheticDistinctOutputRows(groupKeys.get(0), lastNodeLineCount);
+            aggProbability = computeFilterProbability(aggregateOutputRows, lastNodeLineCount);
+        }
+        ConstraintChainAggregateNode aggregateNode = new ConstraintChainAggregateNode(
+                groupKeys,
+                aggProbability,
+                lastNodeLineCount,
+                aggregateOutputRows);
+        aggregateNode.setAllowsPostAggregateJoins(recoverHavingCountFilter);
 
-        if (node.getAggFilter() != null) {
+        if (node.getAggFilter() != null && !recoverHavingCountFilter) {
             ExecutionNode aggNode = node.getAggFilter();
             LogicNode root = analyzeSelectInfo(aggNode.getInfo());
             BigDecimal filterProbability = computeFilterProbability(aggNode.getOutputRows(), lastNodeLineCount);
@@ -244,6 +352,17 @@ public class QueryAnalyzer {
         } else {
             return BigDecimal.valueOf(outputRowCount).divide(BigDecimal.valueOf(inputRowCount), DECIMAL_DIVIDE_SCALE, RoundingMode.DOWN);
         }
+    }
+
+    private long estimateSyntheticDistinctOutputRows(String groupKey, long inputRows) {
+        if (groupKey == null || inputRows <= 0) {
+            return Math.max(0L, inputRows);
+        }
+        int ndv = ColumnManager.getInstance().getNdv(groupKey);
+        if (ndv <= 0) {
+            return inputRows;
+        }
+        return Math.max(1L, Math.min(inputRows, ndv));
     }
 
     /**
@@ -291,10 +410,22 @@ public class QueryAnalyzer {
         String localCol = joinColumnInfos[1];
         String externalTable = joinColumnInfos[2];
         String externalCol = joinColumnInfos[3];
+        if (localTable == null || localCol == null || externalTable == null || externalCol == null) {
+            logger.warn("Skip unresolved join node: info={}, resolved={}", node.getInfo(), Arrays.toString(joinColumnInfos));
+            node.setJoinStatus(SKIP_JOIN_TAG);
+            return node.getOutputRows();
+        }
         if (localTable.equals(externalTable)) {
-            node.setJoinStatus(SKIP_SELF_JOIN);
-            logger.error(rb.getString("SkipSelfJoinNode"), node.getInfo());
-            return STOP_CONSTRUCT;
+            if (isAggregateMembershipArtifactSelfJoin(node, localTable, localCol, externalCol)) {
+                node.setJoinStatus(SKIP_JOIN_TAG);
+                logger.info("Skip aggregate membership artifact self join on {}: {}", localTable, node.getInfo());
+                return node.getOutputRows();
+            }
+            if (!shouldKeepSamePhysicalTableJoin(node, localTable)) {
+                node.setJoinStatus(SKIP_SELF_JOIN);
+                logger.error(rb.getString("SkipSelfJoinNode"), node.getInfo());
+                return STOP_CONSTRUCT;
+            }
         }
         // 如果当前的join节点，不属于之前遍历的节点
         if (!constraintChain.getTableName().equals(localTable) && !constraintChain.getTableName().equals(externalTable)) {
@@ -302,6 +433,11 @@ public class QueryAnalyzer {
                 return node.getOutputRows();
             else
                 return STOP_CONSTRUCT;
+        }
+        if (node.isSemiJoin()
+                && node.getPreferredConstraintChainTable() != null
+                && !node.getPreferredConstraintChainTable().equals(constraintChain.getTableName())) {
+            return STOP_CONSTRUCT;
         }
         //将本表的信息放在前面，交换位置
         if (constraintChain.getTableName().equals(externalTable)) {
@@ -330,7 +466,7 @@ public class QueryAnalyzer {
             }
             boolean joinIsNotOuterJoin = node.getPkDistinctSize().compareTo(BigDecimal.ZERO) == 0;
             boolean skipTheJoinNode = false;
-            if (pkAllRowsInput && fkColIsNotNull && joinIsNotOuterJoin) {
+            if (pkAllRowsInput && fkColIsNotNull && joinIsNotOuterJoin && isSimpleLeafJoin(node)) {
                 logger.debug(rb.getString("SkipNodeDueToFullTableScan"), node.getInfo());
                 node.setJoinStatus(SKIP_JOIN_TAG);
                 skipTheJoinNode = OPEN_SKIP_JOIN_FEATURE;
@@ -358,18 +494,18 @@ public class QueryAnalyzer {
             }
             int joinStatus = node.getJoinStatus();
             logger.debug("{} get join tag", node.getInfo());
-            TableManager.getInstance().setTmpForeignKeys(localTable, localCol, externalTable, externalCol);
+            JoinConstraintJoinModel joinModel = resolveJoinModelForFkJoinNode(localTable, localCol, externalTable, externalCol);
+            registerJoinReferenceForGeneration(localTable, localCol, externalTable, externalCol, joinModel);
             if (joinStatus == SKIP_JOIN_TAG && OPEN_SKIP_JOIN_FEATURE) {
                 logger.debug(rb.getString("SkipNodeDueToFullPk"), node.getInfo());
                 return node.getOutputRows();
             } else if (joinStatus == SKIP_SELF_JOIN) {
                 logger.error(rb.getString("SkipSelfJoinNode"), node.getInfo());
                 return STOP_CONSTRUCT;
-            } else if (constraintChain.hasAggNode()) {
+            } else if (!canContinueJoinAfterAggregate(constraintChain, localTable, localCol)) {
                 logger.error("cannot support join {} after aggregation currently", node.getInfo());
                 return STOP_CONSTRUCT;
             }
-            TableManager.getInstance().setForeignKeys(localTable, localCol, externalTable, externalCol);
             BigDecimal probability = computeFilterProbability(node.getOutputRows(), lastNodeLineCount);
             probability = probability.divide(BigDecimal.valueOf(fkJoinProbability), DECIMAL_DIVIDE_SCALE, RoundingMode.HALF_UP);
             if (probability.compareTo(BigDecimal.ONE) > 0 || joinStatus == SKIP_JOIN_TAG) {
@@ -411,14 +547,15 @@ public class QueryAnalyzer {
                     fkJoinNode.setType(ConstraintNodeJoinType.ANTI_JOIN);
                 }
             }
-            fkJoinNode.setJoinModel(resolveJoinModelForFkJoinNode(localTable, localCol, externalTable, externalCol));
+            fkJoinNode.setJoinModel(joinModel);
             fkJoinNode.setTargetJoinRows(node.getOutputRows());
             if (node.getLeftNode() != null) {
-                fkJoinNode.setLeftInputRows(node.getLeftNode().getOutputRows());
+                fkJoinNode.setLeftInputRows(resolvePreferredInputRows(node.getLeftInputRows(), node.getLeftNode().getOutputRows()));
             }
             if (node.getRightNode() != null) {
-                fkJoinNode.setRightInputRows(node.getRightNode().getOutputRows());
+                fkJoinNode.setRightInputRows(resolvePreferredInputRows(node.getRightInputRows(), node.getRightNode().getOutputRows()));
             }
+            setRoleInputRows(fkJoinNode, node, localTable, externalTable);
             if (fkJoinNode.getJoinModel() == JoinConstraintJoinModel.GENERIC) {
                 if (localCol.contains(",") || externalCol.contains(",")) {
                     logger.warn(
@@ -429,7 +566,7 @@ public class QueryAnalyzer {
                     String localCanon = localTable + CANONICAL_NAME_CONTACT_SYMBOL + localCol;
                     // 默认单桶 PF，避免与主 JOIN 基数约束叠加后易 INFEASIBLE；多桶由 genericBucketWeights 显式写入或后续统计 pass
                     fkJoinNode.setGenericBucketWeights(GenericJoinWeightEstimator.estimateUniformBucketWeights(
-                            localCanon, fkJoinNode.getLeftInputRows(), 1));
+                            localCanon, fkJoinNode.getLocalInputRows(), 1));
                 }
                 if (!externalCol.contains(",")) {
                     String refCanon = externalTable + CANONICAL_NAME_CONTACT_SYMBOL + externalCol;
@@ -442,6 +579,116 @@ public class QueryAnalyzer {
             constraintChain.addNode(fkJoinNode);
             return node.getOutputRows();
         }
+    }
+
+    private static void setRoleInputRows(ConstraintChainFkJoinNode fkJoinNode, JoinNode node,
+                                         String localTable, String externalTable) {
+        ExecutionNode left = node.getLeftNode();
+        ExecutionNode right = node.getRightNode();
+        Long localRows = findInputRowsForTable(left, node.getLeftInputRows(), right, node.getRightInputRows(), localTable);
+        Long refRows = findInputRowsForTable(left, node.getLeftInputRows(), right, node.getRightInputRows(), externalTable);
+        if (localRows == null) {
+            localRows = fkJoinNode.getLeftInputRows();
+        }
+        if (refRows == null) {
+            refRows = fkJoinNode.getRightInputRows();
+        }
+        fkJoinNode.setLocalInputRows(localRows);
+        fkJoinNode.setRefInputRows(refRows);
+    }
+
+    private static Long findInputRowsForTable(ExecutionNode left, Long leftInputRows,
+                                              ExecutionNode right, Long rightInputRows,
+                                              String tableName) {
+        if (tableName == null) {
+            return null;
+        }
+        if (containsTable(left, tableName)) {
+            return resolvePreferredInputRows(leftInputRows, left != null ? left.getOutputRows() : null);
+        }
+        if (containsTable(right, tableName)) {
+            return resolvePreferredInputRows(rightInputRows, right != null ? right.getOutputRows() : null);
+        }
+        return null;
+    }
+
+    private static Long resolvePreferredInputRows(Long preferredRows, Long fallbackRows) {
+        if (preferredRows != null && preferredRows > 0) {
+            return preferredRows;
+        }
+        if (fallbackRows != null && fallbackRows > 0) {
+            return fallbackRows;
+        }
+        return preferredRows != null ? preferredRows : fallbackRows;
+    }
+
+    private static boolean containsTable(ExecutionNode node, String tableName) {
+        if (node == null || tableName == null) {
+            return false;
+        }
+        if (tableName.equals(node.getTableName())) {
+            return true;
+        }
+        return containsTable(node.getLeftNode(), tableName) || containsTable(node.getRightNode(), tableName);
+    }
+
+    private static boolean shouldKeepSamePhysicalTableJoin(JoinNode node, String tableName) {
+        if (node == null || tableName == null) {
+            return false;
+        }
+        ExecutionNode left = node.getLeftNode();
+        ExecutionNode right = node.getRightNode();
+        if (left == null || right == null) {
+            return false;
+        }
+        if (!containsTable(left, tableName) || !containsTable(right, tableName)) {
+            return false;
+        }
+        return !isSimpleFilterLeaf(left) || !isSimpleFilterLeaf(right)
+                || subtreeContainsAggregate(left) || subtreeContainsAggregate(right);
+    }
+
+    private static boolean isSimpleLeafJoin(JoinNode node) {
+        return node != null && isSimpleFilterLeaf(node.getLeftNode()) && isSimpleFilterLeaf(node.getRightNode());
+    }
+
+    private static boolean isSimpleFilterLeaf(ExecutionNode node) {
+        return node != null
+                && node.getType() == ExecutionNodeType.FILTER
+                && node.getLeftNode() == null
+                && node.getRightNode() == null;
+    }
+
+    private static boolean subtreeContainsAggregate(ExecutionNode node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getType() == ExecutionNodeType.AGGREGATE) {
+            return true;
+        }
+        return subtreeContainsAggregate(node.getLeftNode()) || subtreeContainsAggregate(node.getRightNode());
+    }
+
+    private static boolean canContinueJoinAfterAggregate(ConstraintChain constraintChain,
+                                                         String localTable,
+                                                         String localCol) {
+        if (constraintChain == null || !constraintChain.hasAggNode()) {
+            return true;
+        }
+        String localKey = localTable == null || localCol == null ? null : localTable + "." + localCol;
+        if (constraintChain.canContinueJoinAfterAggregateOnLocalKey(localKey)) {
+            return true;
+        }
+        if (localTable == null || constraintChain.getTableName() == null) {
+            return false;
+        }
+        if (constraintChain.getTableName().equals(localTable)) {
+            return false;
+        }
+        return constraintChain.getNodes().stream()
+                .filter(ConstraintChainAggregateNode.class::isInstance)
+                .map(ConstraintChainAggregateNode.class::cast)
+                .allMatch(ConstraintChainAggregateNode::isSingleGroupKeyDistinctConstraint);
     }
 
     /**
@@ -462,16 +709,67 @@ public class QueryAnalyzer {
             constraintChain = new ConstraintChain(headNode.getTableName());
             FilterNode filterNode = (FilterNode) headNode;
             if (filterNode.getInfo() != null) {
-                LogicNode result = analyzeSelectInfo(filterNode.getInfo());
-                if (filterNode.isIndexScan()) {
-                    result.removeOtherTablesOperation(filterNode.getTableName());
-                    int rowsAfterFilter = dbConnector.getRowsAfterFilter(filterNode.getTableName(), result.toString());
-                    filterNode.setOutputRows(rowsAfterFilter);
+                if (isUnmodeledSubPlanAlternative(filterNode.getInfo())) {
+                    logger.warn("Skip unmodeled SubPlan alternative head filter on table {}: {}",
+                            filterNode.getTableName(), filterNode.getInfo());
+                } else {
+                    boolean crossTablePredicate = referencesOtherTablesWithAliases(filterNode.getInfo(), filterNode.getTableName());
+                    String localOnlyInfo = extractLocalOnlyFilterInfoWithAliases(filterNode.getInfo(), filterNode.getTableName());
+                    if (localOnlyInfo == null || localOnlyInfo.isBlank()) {
+                        if (crossTablePredicate) {
+                            logger.info("Skip cross-table filter predicate on {}: {}",
+                                    filterNode.getTableName(), filterNode.getInfo());
+                        }
+                        lastNodeLineCount = resolveEffectiveHeadRows(filterNode);
+                        inputNodes.add(headNode);
+                        for (ExecutionNode executionNode : path.subList(1, path.size())) {
+                            try {
+                                lastNodeLineCount = analyzeNode(executionNode, constraintChain, lastNodeLineCount);
+                                inputNodes.add(executionNode);
+                                if (lastNodeLineCount == STOP_CONSTRUCT) {
+                                    if (constraintChain.getNodes().isEmpty()) {
+                                        return null;
+                                    } else {
+                                        break;
+                                    }
+                                } else if (lastNodeLineCount < 0) {
+                                    throw new UnsupportedOperationException();
+                                }
+                            } catch (TouchstoneException e) {
+                                logger.error("extract constraint chain fail", e);
+                                if (canUseTableSizeForSkipRatio(executionNode)
+                                        && executionNode.getOutputRows() * 1.0 / TableManager.getInstance().getTableSize(executionNode.getTableName()) < skipNodeThreshold) {
+                                    logger.error(rb.getString("FailToExtractConstraintChain"), e);
+                                    logger.info(String.format(rb.getString("SkipNodeDueToRatio"), e.getMessage(), executionNode));
+                                    return constraintChain;
+                                }
+                            }
+                        }
+                        return constraintChain.getNodes().isEmpty() ? null : constraintChain;
+                    }
+                    LogicNode result = analyzeSelectInfo(localOnlyInfo, filterNode.getTableName());
+                    boolean hasSingleTableFilter = result.retainOnlyTableOperations(filterNode.getTableName());
+                    if (filterNode.isIndexScan()) {
+                        if (hasSingleTableFilter && dbConnector != null) {
+                            int rowsAfterFilter = dbConnector.getRowsAfterFilter(filterNode.getTableName(), result.toString());
+                            filterNode.setOutputRows(rowsAfterFilter);
+                        } else {
+                            logger.info("Skip standalone filter cardinality query for cross-table Index Cond on {}: {}",
+                                    filterNode.getTableName(), filterNode.getInfo());
+                        }
+                    } else if (crossTablePredicate || result.isDifferentTable(filterNode.getTableName())) {
+                        hasSingleTableFilter = false;
+                        logger.info("Skip cross-table filter predicate on {}: {}",
+                                filterNode.getTableName(), filterNode.getInfo());
+                    }
+                    if (hasSingleTableFilter) {
+                        BigDecimal ratio = computeFilterProbability(filterNode.getOutputRows(), TableManager.getInstance().getTableSize(filterNode.getTableName()));
+                        constraintChain.addNode(new ConstraintChainFilterNode(ratio, result));
+                    } else {
+                    }
                 }
-                BigDecimal ratio = computeFilterProbability(filterNode.getOutputRows(), TableManager.getInstance().getTableSize(filterNode.getTableName()));
-                constraintChain.addNode(new ConstraintChainFilterNode(ratio, result));
             }
-            lastNodeLineCount = filterNode.getOutputRows();
+            lastNodeLineCount = resolveEffectiveHeadRows(filterNode);
         } else {
             throw new TouchstoneException(String.format(rb.getString("InvalidUnderlyingNode"), headNode.getId()));
         }
@@ -577,9 +875,9 @@ public class QueryAnalyzer {
             List<List<ExecutionNode>> paths = new ArrayList<>();
             getPathsIterate(executionTree, paths, new LinkedList<>());
             // 并发处理约束链
-            HashSet<ExecutionNode> allNodes = new HashSet<>();
+            Set<ExecutionNode> allNodes = Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
             paths.forEach(allNodes::addAll);
-            Set<ExecutionNode> inputNodes = ConcurrentHashMap.newKeySet();
+            Set<ExecutionNode> inputNodes = Collections.synchronizedSet(Collections.newSetFromMap(new IdentityHashMap<>()));
             try (ForkJoinPool forkJoinPool = new ForkJoinPool(paths.size())) {
                 constraintChains.add(new ArrayList<>(forkJoinPool.submit(() -> paths.parallelStream().map(path -> {
                     try {
@@ -619,11 +917,337 @@ public class QueryAnalyzer {
      * @throws TouchstoneException 分析失败
      */
     private synchronized LogicNode analyzeSelectInfo(String operatorInfo) throws TouchstoneException {
+        return analyzeSelectInfo(operatorInfo, null);
+    }
+
+    private synchronized LogicNode analyzeSelectInfo(String operatorInfo, String tableName) throws TouchstoneException {
+        LogicNode recovered = tryRecoverSimpleSingleTableEqualityFilter(operatorInfo, tableName);
+        if (recovered != null) {
+            return recovered;
+        }
         try {
             return abstractAnalyzer.analyzeSelectOperator(operatorInfo);
         } catch (Exception e) {
+            recovered = tryRecoverSimpleSingleTableEqualityFilter(operatorInfo, tableName);
+            if (recovered != null) {
+                return recovered;
+            }
             throw new UnsupportedSelect(operatorInfo, e);
         }
+    }
+
+    private long resolveEffectiveHeadRows(FilterNode filterNode) {
+        long outputRows = filterNode.getOutputRows();
+        if (outputRows > 0 || filterNode.getId() == null) {
+            return outputRows;
+        }
+        long recoveredRows = PgJsonReader.readNearestSkippableAncestorRows(filterNode.getId());
+        if (recoveredRows > outputRows) {
+            logger.info("Recover head rows from skipped ancestor for {}: {} -> {}",
+                    filterNode.getTableName(), outputRows, recoveredRows);
+            filterNode.setOutputRows(recoveredRows);
+            return recoveredRows;
+        }
+        return outputRows;
+    }
+
+    private LogicNode tryRecoverSimpleSingleTableEqualityFilter(String operatorInfo, String tableName) {
+        if (operatorInfo == null || tableName == null) {
+            return null;
+        }
+        String normalized = operatorInfo
+                .replaceAll("::\\s*[a-zA-Z0-9_.]+(?:\\s+[a-zA-Z0-9_]+)*(?:\\[\\])?", "")
+                .replaceAll("\\(\\s*([a-zA-Z_][a-zA-Z0-9_$]*(?:\\.[a-zA-Z_][a-zA-Z0-9_$]*){0,2})\\s*\\)", "$1")
+                .trim();
+        normalized = trimSingleConjunct(normalized);
+        if (normalized.contains(" AND ") || normalized.contains(" OR ")) {
+            return null;
+        }
+        Matcher matcher = SIMPLE_SINGLE_TABLE_EQ_LITERAL.matcher(normalized);
+        if (!matcher.matches()) {
+            return null;
+        }
+        String colRef = matcher.group(1);
+        String literal = matcher.group(2);
+        String canonicalColumnName = toCanonicalColumnName(colRef, tableName);
+        if (canonicalColumnName == null) {
+            return null;
+        }
+        Parameter parameter = new Parameter(0, canonicalColumnName, literal);
+        parameter.setEqualPredicate(true);
+        UniVarFilterOperation operation = new UniVarFilterOperation(
+                canonicalColumnName, CompareOperator.EQ, Collections.singletonList(parameter));
+        LogicNode logicNode = new LogicNode();
+        logicNode.setType(BoolExprType.AND);
+        logicNode.setChildren(new ArrayList<>(List.of(operation)));
+        return logicNode;
+    }
+
+    private String toCanonicalColumnName(String colRef, String tableName) {
+        if (colRef == null || colRef.isBlank() || tableName == null || tableName.isBlank()) {
+            return null;
+        }
+        String cleaned = colRef.replace("\"", "").trim();
+        String[] parts = cleaned.split("\\.");
+        if (parts.length == 3) {
+            return cleaned;
+        }
+        if (parts.length == 2) {
+            return tableName + "." + parts[1];
+        }
+        if (parts.length == 1) {
+            return tableName + "." + parts[0];
+        }
+        return null;
+    }
+
+    static boolean isUnmodeledSubPlanAlternative(String operatorInfo) {
+        return operatorInfo != null && SUBPLAN_ALTERNATIVE_PLACEHOLDER.matcher(operatorInfo.trim()).matches();
+    }
+
+    private static boolean shouldRecoverCountGtLiteralAggregate(AggNode node) {
+        if (node == null || node.getAggregateFilterKind() != AggNode.AggregateFilterKind.COUNT_GT_LITERAL) {
+            return false;
+        }
+        FilterNode aggFilter = node.getAggFilter();
+        return aggFilter != null && aggFilter.getInfo() != null && COUNT_GT_LITERAL.matcher(aggFilter.getInfo().trim()).matches();
+    }
+
+    static boolean referencesOtherTables(String operatorInfo, String tableName) {
+        if (operatorInfo == null || tableName == null) {
+            return false;
+        }
+        Matcher matcher = CANONICAL_COLUMN_REF.matcher(operatorInfo);
+        while (matcher.find()) {
+            String ref = matcher.group(1);
+            int split = ref.lastIndexOf('.');
+            if (split <= 0) {
+                continue;
+            }
+            String refTable = ref.substring(0, split);
+            if (!tableName.equals(refTable)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean referencesOtherTablesWithAliases(String operatorInfo, String tableName) {
+        if (operatorInfo == null || tableName == null) {
+            return false;
+        }
+        Matcher matcher = QUALIFIED_COLUMN_REF.matcher(operatorInfo.replace("\"", ""));
+        while (matcher.find()) {
+            String refTable = resolveReferenceTableName(matcher.group(1), tableName);
+            if (refTable != null && !tableName.equals(refTable)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static String extractLocalOnlyFilterInfo(String operatorInfo, String tableName) {
+        if (operatorInfo == null || tableName == null) {
+            return operatorInfo;
+        }
+        String normalized = trimSingleConjunct(operatorInfo);
+        List<String> kept = new ArrayList<>();
+        for (String conjunct : splitTopLevelAndConjuncts(normalized)) {
+            String trimmed = trimSingleConjunct(conjunct);
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if (referencesOtherTables(trimmed, tableName)) {
+                continue;
+            }
+            if (containsCanonicalReference(trimmed) && !containsReferenceForTable(trimmed, tableName)) {
+                continue;
+            }
+            kept.add(trimmed);
+        }
+        if (kept.isEmpty()) {
+            return null;
+        }
+        return String.join(" AND ", kept);
+    }
+
+    private String extractLocalOnlyFilterInfoWithAliases(String operatorInfo, String tableName) {
+        if (operatorInfo == null || tableName == null) {
+            return operatorInfo;
+        }
+        String normalized = trimSingleConjunct(operatorInfo);
+        List<String> kept = new ArrayList<>();
+        for (String conjunct : splitTopLevelAndConjuncts(normalized)) {
+            String trimmed = trimSingleConjunct(conjunct);
+            if (trimmed.isBlank()) {
+                continue;
+            }
+            if (!predicateReferencesOnlyCurrentTable(trimmed, tableName)) {
+                continue;
+            }
+            kept.add(trimmed);
+        }
+        if (kept.isEmpty()) {
+            return null;
+        }
+        return String.join(" AND ", kept);
+    }
+
+    private boolean predicateReferencesOnlyCurrentTable(String expr, String tableName) {
+        Matcher matcher = QUALIFIED_COLUMN_REF.matcher(expr.replace("\"", ""));
+        boolean sawQualifiedRef = false;
+        while (matcher.find()) {
+            sawQualifiedRef = true;
+            String refTable = resolveReferenceTableName(matcher.group(1), tableName);
+            if (refTable == null || !tableName.equals(refTable)) {
+                return false;
+            }
+        }
+        return !sawQualifiedRef || containsReferenceForResolvedTable(expr, tableName);
+    }
+
+    private boolean containsReferenceForResolvedTable(String expr, String tableName) {
+        Matcher matcher = QUALIFIED_COLUMN_REF.matcher(expr.replace("\"", ""));
+        while (matcher.find()) {
+            String refTable = resolveReferenceTableName(matcher.group(1), tableName);
+            if (tableName.equals(refTable)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String resolveReferenceTableName(String ref, String currentTable) {
+        if (ref == null || ref.isBlank()) {
+            return null;
+        }
+        String cleaned = ref.replace("\"", "").trim();
+        String[] parts = cleaned.split("\\.");
+        if (parts.length >= 3) {
+            return parts[0] + "." + parts[1];
+        }
+        if (parts.length == 2) {
+            String qualifier = parts[0];
+            String aliasedTable = abstractAnalyzer.lookupAliasTable(qualifier);
+            if (aliasedTable != null) {
+                return aliasedTable;
+            }
+            if (currentTable != null) {
+                int split = currentTable.lastIndexOf('.');
+                String shortTable = split >= 0 ? currentTable.substring(split + 1) : currentTable;
+                if (shortTable.equals(qualifier)) {
+                    return currentTable;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static List<String> splitTopLevelAndConjuncts(String expr) {
+        List<String> out = new ArrayList<>();
+        if (expr == null || expr.isBlank()) {
+            return out;
+        }
+        expr = trimSingleConjunct(expr);
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < expr.length() - 2; i++) {
+            char c = expr.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+            }
+            if (depth == 0 && expr.regionMatches(true, i, "AND", 0, 3)) {
+                out.add(expr.substring(start, i).trim());
+                start = i + 3;
+                i += 2;
+            }
+        }
+        out.add(expr.substring(start).trim());
+        return out;
+    }
+
+    private static String trimSingleConjunct(String expr) {
+        String trimmed = expr == null ? "" : expr.trim();
+        while (trimmed.startsWith("(") && trimmed.endsWith(")") && hasBalancedOuterParentheses(trimmed)) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
+        }
+        return trimmed;
+    }
+
+    private static boolean containsCanonicalReference(String expr) {
+        return expr != null && CANONICAL_COLUMN_REF.matcher(expr).find();
+    }
+
+    private static boolean containsReferenceForTable(String expr, String tableName) {
+        Matcher matcher = CANONICAL_COLUMN_REF.matcher(expr);
+        while (matcher.find()) {
+            String ref = matcher.group(1);
+            int split = ref.lastIndexOf('.');
+            if (split > 0 && tableName.equals(ref.substring(0, split))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Set<String> normalizedJoinColSet(String joinCols) {
+        Set<String> out = new HashSet<>();
+        if (joinCols == null) {
+            return out;
+        }
+        for (String col : joinCols.split(",")) {
+            String trimmed = col.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            int split = trimmed.lastIndexOf('.');
+            out.add(split >= 0 ? trimmed.substring(split + 1) : trimmed);
+        }
+        return out;
+    }
+
+    private static boolean isAggregateMembershipArtifactSelfJoin(JoinNode node,
+                                                                 String tableName,
+                                                                 String localCol,
+                                                                 String externalCol) {
+        if (node == null || tableName == null) {
+            return false;
+        }
+        if (!normalizedJoinColSet(localCol).equals(normalizedJoinColSet(externalCol))) {
+            return false;
+        }
+        ExecutionNode left = node.getLeftNode();
+        ExecutionNode right = node.getRightNode();
+        if (left == null || right == null) {
+            return false;
+        }
+        boolean leftHasAggregate = subtreeContainsAggregate(left);
+        boolean rightHasAggregate = subtreeContainsAggregate(right);
+        if (!(leftHasAggregate ^ rightHasAggregate)) {
+            return false;
+        }
+        return containsTable(left, tableName) && containsTable(right, tableName);
+    }
+
+    private static boolean hasBalancedOuterParentheses(String expression) {
+        int depth = 0;
+        for (int i = 0; i < expression.length(); i++) {
+            char c = expression.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0 && i < expression.length() - 1) {
+                    return false;
+                }
+            }
+            if (depth < 0) {
+                return false;
+            }
+        }
+        return depth == 0;
     }
 
 }

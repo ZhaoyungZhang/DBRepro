@@ -68,4 +68,11 @@ public abstract class AbstractAnalyzer {
         this.aliasDic = aliasDic;
     }
 
+    public String lookupAliasTable(String alias) {
+        if (alias == null) {
+            return null;
+        }
+        return aliasDic.get(alias.replace("\"", ""));
+    }
+
 }

@@ -186,6 +186,33 @@ public class TaskConfigurator implements Callable<Integer> {
         }
     }
 
+    static List<String> resolveDistributionColumns(String canonicalTableName,
+                                                   Table table,
+                                                   Set<String> involvedCols,
+                                                   Logger logger) {
+        if (involvedCols == null || involvedCols.isEmpty()) {
+            logger.warn("表 {} 未出现在查询条件解析的列映射中，使用全表列估算数据分布", canonicalTableName);
+            return new ArrayList<>(table.getCanonicalColumnNames());
+        }
+
+        Set<String> physicalColumns = new HashSet<>(table.getCanonicalColumnNames());
+        List<String> validColumns = involvedCols.stream()
+                .filter(physicalColumns::contains)
+                .toList();
+        if (validColumns.size() != involvedCols.size()) {
+            List<String> skippedColumns = involvedCols.stream()
+                    .filter(column -> !physicalColumns.contains(column))
+                    .sorted()
+                    .toList();
+            logger.warn("表 {} 的参与列中存在未出现在 metadata 的列，已跳过: {}", canonicalTableName, skippedColumns);
+        }
+        if (validColumns.isEmpty()) {
+            logger.warn("表 {} 的查询参与列全部无法映射到真实 metadata，回退为全表列估算数据分布", canonicalTableName);
+            return new ArrayList<>(table.getCanonicalColumnNames());
+        }
+        return validColumns;
+    }
+
 
     private List<File> querySchemaMetadataAndColumnMetadata(QueryReader queryReader, DbConnector dbConnector)
             throws IOException, TouchstoneException, SQLException {
@@ -225,16 +252,8 @@ public class TaskConfigurator implements Callable<Integer> {
                 TableManager.getInstance().addSchema(canonicalTableName, table);
                 logger.info(rb.getString("GetColumnMetadataSuccessfully"), canonicalTableName);
                 logger.info(rb.getString("StartGettingTheDataDistributionOfTable"), canonicalTableName);
-                // fetchTableNames 含 FROM/JOIN 中所有表；fetchQueryColumnNames 仅来自 WHERE/JOIN ON 等 condition，
-                // 若某表只出现在 SELECT/GROUP BY 等或解析未归入该表键，此处 get 会为 null，需回退为全表列。
                 Set<String> involvedCols = tableName2Columns.get(canonicalTableName);
-                List<String> allColumns;
-                if (involvedCols == null || involvedCols.isEmpty()) {
-                    logger.warn("表 {} 未出现在查询条件解析的列映射中，使用全表列估算数据分布", canonicalTableName);
-                    allColumns = new ArrayList<>(table.getCanonicalColumnNames());
-                } else {
-                    allColumns = involvedCols.stream().toList();
-                }
+                List<String> allColumns = resolveDistributionColumns(canonicalTableName, table, involvedCols, logger);
                 ColumnManager.getInstance().setDataRangeBySqlResult(allColumns,
                         dbConnector.getDataRange(canonicalTableName, allColumns));
                 logger.info(rb.getString("GetTheDataDistributionOfTableSuccessfully"), canonicalTableName);

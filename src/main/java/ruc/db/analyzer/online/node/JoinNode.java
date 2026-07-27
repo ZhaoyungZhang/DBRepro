@@ -32,6 +32,13 @@ public class JoinNode extends ExecutionNode {
     private final BigDecimal pkDistinctProbability;
     private long rowsRemoveByFilterAfterJoin;
     private String indexJoinFilter;
+    private Long leftInputRows;
+    private Long rightInputRows;
+    /**
+     * 对由 correlated EXISTS/SubPlan 恢复出的 semijoin，仅允许在外层表对应的 constraint chain 上落链，
+     * 避免从内表叶子路径再生成一条镜像辅助链。
+     */
+    private String preferredConstraintChainTable;
 
 
     public JoinNode(String id, long outputRows, String info, boolean antiJoin, boolean semiJoin, BigDecimal pkDistinctProbability) {
@@ -83,12 +90,36 @@ public class JoinNode extends ExecutionNode {
         return semiJoin;
     }
 
+    public Long getLeftInputRows() {
+        return leftInputRows;
+    }
+
+    public void setLeftInputRows(Long leftInputRows) {
+        this.leftInputRows = leftInputRows;
+    }
+
+    public Long getRightInputRows() {
+        return rightInputRows;
+    }
+
+    public void setRightInputRows(Long rightInputRows) {
+        this.rightInputRows = rightInputRows;
+    }
+
     public long getRowsRemoveByFilterAfterJoin() {
         return rowsRemoveByFilterAfterJoin;
     }
 
     public void setRowsRemoveByFilterAfterJoin(long rowsRemoveByFilterAfterJoin) {
         this.rowsRemoveByFilterAfterJoin = rowsRemoveByFilterAfterJoin;
+    }
+
+    public String getPreferredConstraintChainTable() {
+        return preferredConstraintChainTable;
+    }
+
+    public void setPreferredConstraintChainTable(String preferredConstraintChainTable) {
+        this.preferredConstraintChainTable = preferredConstraintChainTable;
     }
 
     @Override
@@ -106,6 +137,9 @@ public class JoinNode extends ExecutionNode {
         if (!waitSetJoinTag.equals(joinNode.waitSetJoinTag)) return false;
         if (!Objects.equals(pkDistinctProbability, joinNode.pkDistinctProbability))
             return false;
+        if (!Objects.equals(leftInputRows, joinNode.leftInputRows)) return false;
+        if (!Objects.equals(rightInputRows, joinNode.rightInputRows)) return false;
+        if (!Objects.equals(preferredConstraintChainTable, joinNode.preferredConstraintChainTable)) return false;
         return Objects.equals(indexJoinFilter, joinNode.indexJoinFilter);
     }
 
@@ -117,6 +151,9 @@ public class JoinNode extends ExecutionNode {
         result = 31 * result + waitSetJoinTag.hashCode();
         result = 31 * result + joinStatus;
         result = 31 * result + (pkDistinctProbability != null ? pkDistinctProbability.hashCode() : 0);
+        result = 31 * result + (leftInputRows != null ? leftInputRows.hashCode() : 0);
+        result = 31 * result + (rightInputRows != null ? rightInputRows.hashCode() : 0);
+        result = 31 * result + (preferredConstraintChainTable != null ? preferredConstraintChainTable.hashCode() : 0);
         result = 31 * result + (int) (rowsRemoveByFilterAfterJoin ^ (rowsRemoveByFilterAfterJoin >>> 32));
         result = 31 * result + (indexJoinFilter != null ? indexJoinFilter.hashCode() : 0);
         return result;

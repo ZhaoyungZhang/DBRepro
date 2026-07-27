@@ -14,6 +14,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class PgJsonReader {
+    private static final Pattern TRAILING_PLAN_SEGMENT = Pattern.compile("\\['Plans']\\[\\d+\\]$");
     private static DocumentContext readContext;
 
     private static boolean isGauss = false;
@@ -57,16 +58,56 @@ public class PgJsonReader {
 
     static StringBuilder skipNodes(StringBuilder path) {
         //找到第一个可以处理的节点
-        while (new PgNodeTypeInfo().isPassNode(readNodeType(path))) {
+        while (isSkippablePassNode(path)) {
             path = move2LeftChild(path);
         }
         return path;
+    }
+
+    static boolean isSkippablePassNode(StringBuilder path) {
+        String nodeType = readNodeType(path);
+        if (nodeType == null) {
+            return false;
+        }
+        if (!new PgNodeTypeInfo().isPassNode(nodeType)) {
+            return false;
+        }
+        if (!"Append".equals(nodeType)) {
+            return true;
+        }
+        return isPartitionLikeAppend(path);
+    }
+
+    static boolean isPartitionLikeAppend(StringBuilder path) {
+        int childCount = readPlansCount(path);
+        if (childCount <= 1) {
+            return true;
+        }
+        for (int i = 0; i < childCount; i++) {
+            StringBuilder child = new StringBuilder(path).append("['Plans'][").append(i).append("]");
+            String childType = readNodeType(skipNodes(child));
+            if (childType == null) {
+                return false;
+            }
+            if (!new PgNodeTypeInfo().isFilterNode(childType) && !"Bitmap Index Scan".equals(childType)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // read schema info
 
     static String readTableName(String path) {
         return readContext.read(path + "['Schema']") + "." + readContext.read(path + "['Relation Name']");
+    }
+
+    static String readSchema(String path) {
+        return readContext.read(path + "['Schema']");
+    }
+
+    static String readRelationName(String path) {
+        return readContext.read(path + "['Relation Name']");
     }
 
     static String readAlias(String path) {
@@ -271,6 +312,28 @@ public class PgJsonReader {
 
     static int readActualLoops(StringBuilder path) {
         return readContext.read(path + "['Actual Loops']");
+    }
+
+    public static long readNearestSkippableAncestorRows(String nodePath) {
+        if (nodePath == null || nodePath.isBlank()) {
+            return 0L;
+        }
+        String current = nodePath;
+        while (true) {
+            Matcher matcher = TRAILING_PLAN_SEGMENT.matcher(current);
+            if (!matcher.find()) {
+                return 0L;
+            }
+            String parent = current.substring(0, matcher.start());
+            StringBuilder parentPath = new StringBuilder(parent);
+            if (isSkippablePassNode(parentPath)) {
+                long rows = readRowCount(parentPath);
+                if (rows > 0) {
+                    return rows;
+                }
+            }
+            current = parent;
+        }
     }
 
     private static int readRowsCountAdaptive(StringBuilder path, String tag) {

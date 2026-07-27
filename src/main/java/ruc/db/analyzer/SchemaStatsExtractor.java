@@ -151,8 +151,9 @@ public class SchemaStatsExtractor implements Callable<Integer> {
                 dealWithUnknownTable(unKnownCols, table, canonicalTableName, tableName2Columns);
                 TableManager.getInstance().addSchema(canonicalTableName, table);
                 logger.info(rb.getString("GetColumnMetadataSuccessfully"), canonicalTableName);
-                // logger.info(rb.getString("StartGettingTheDataDistributionOfTable"), canonicalTableName);
-                List<String> allColumns = tableName2Columns.get(canonicalTableName).stream().toList();
+                Set<String> involvedCols = tableName2Columns.get(canonicalTableName);
+                List<String> allColumns = TaskConfigurator.resolveDistributionColumns(
+                        canonicalTableName, table, involvedCols, logger);
                 ColumnManager.getInstance().setDataRangeBySqlResult(allColumns,
                         dbConnector.getDataRange(canonicalTableName, allColumns));
                 logger.info(rb.getString("GetTheDataDistributionOfTableSuccessfully"), canonicalTableName);

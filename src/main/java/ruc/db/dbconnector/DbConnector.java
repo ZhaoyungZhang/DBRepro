@@ -345,7 +345,11 @@ public abstract class DbConnector {
     private String getColumnDistributionSql(List<String> canonicalColumnNames) throws TouchstoneException {
         StringBuilder sql = new StringBuilder();
         for (String canonicalColumnName : canonicalColumnNames) {
-            ColumnType type = ColumnManager.getInstance().getColumnType(canonicalColumnName);
+            Column column = ColumnManager.getInstance().getColumn(canonicalColumnName);
+            if (column == null) {
+                throw new TouchstoneException("列元数据不存在，无法生成 distribution SQL: " + canonicalColumnName);
+            }
+            ColumnType type = column.getColumnType();
             String[] canonicalColumnNameList = canonicalColumnName.split("\\.");
             canonicalColumnName = Arrays.stream(canonicalColumnNameList)
                     .map(s -> String.format("\"%s\"", s))
