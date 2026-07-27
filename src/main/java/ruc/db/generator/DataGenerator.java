@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -36,6 +37,7 @@ import ruc.db.LanguageManager;
 import ruc.db.generator.constraintchain.ConstraintChain;
 import ruc.db.generator.constraintchain.ConstraintChainManager;
 import ruc.db.generator.constraintchain.ConstraintChainNode;
+import ruc.db.generator.constraintchain.agg.ConstraintChainAggregateNode;
 import ruc.db.generator.constraintchain.filter.BoolExprNode;
 import ruc.db.generator.constraintchain.filter.ConstraintChainFilterNode;
 import ruc.db.generator.constraintchain.filter.LogicNode;
@@ -44,6 +46,8 @@ import ruc.db.generator.constraintchain.filter.operation.MultiVarFilterOperation
 import ruc.db.generator.constraintchain.filter.operation.UniVarFilterOperation;
 import ruc.db.generator.constraintchain.join.ConstraintChainFkJoinNode;
 import ruc.db.generator.constraintchain.join.ConstraintChainPkJoinNode;
+import ruc.db.generator.constraintchain.join.ConstraintNodeJoinType;
+import ruc.db.generator.constraintchain.join.JoinConstraintJoinModel;
 import ruc.db.generator.joininfo.JoinStatus;
 import ruc.db.generator.joininfo.RuleTable;
 import ruc.db.generator.joininfo.RuleTableManager;
@@ -79,9 +83,17 @@ public class DataGenerator implements Callable<Integer> {
     private String statisticsPath;
     @CommandLine.Option(names = {"--distribution-model"}, description = "distribution model for data generation: UNIFORM, NORMAL, EXPONENTIAL, GOLDEN_RATIO", defaultValue = "GOLDEN_RATIO")
     private String distributionModel;
+    @CommandLine.Option(names = {"--cp-timeout-seconds"}, description = "CP-SAT solver timeout in seconds; overrides -Ddbrepro.cp.timeout.seconds and DBREPRO_CP_TIMEOUT_SECONDS for this generate run")
+    private Double cpTimeoutSeconds;
+    @CommandLine.Option(names = {"--status-vector-diagnostics"}, description = "print expensive status-vector distribution diagnostics during generate", defaultValue = "false")
+    private boolean statusVectorDiagnostics;
+    @CommandLine.Option(names = {"--filter-eval-diagnostics"}, description = "scan actual column values to print expensive filter match-rate diagnostics", defaultValue = "false")
+    private boolean filterEvalDiagnostics;
 
 
     private Map<String, List<ConstraintChain>> schema2chains;
+    private Map<String, Set<Integer>> referencedPhysicalPrimaryKeyTags = new HashMap<>();
+    private Map<String, Set<Integer>> localJoinColumnTags = new HashMap<>();
 
     private DataWriter dataWriter;
 
@@ -102,6 +114,73 @@ public class DataGenerator implements Callable<Integer> {
 
     private static void clearGenericJoinHistogramAccumulators(Map<String, Map<Long, Long>> acc) {
         acc.clear();
+    }
+
+    static void configureCpTimeoutSeconds(Double timeoutSeconds) {
+        if (timeoutSeconds == null) {
+            return;
+        }
+        if (timeoutSeconds < 0) {
+            throw new IllegalArgumentException("--cp-timeout-seconds must be >= 0");
+        }
+        System.setProperty(ConstructCpModel.CP_TIMEOUT_PROPERTY, Double.toString(timeoutSeconds));
+    }
+
+    static void configureFilterEvalDiagnostics(boolean enabled) {
+        System.setProperty(Column.FILTER_EVAL_DIAGNOSTICS_PROPERTY, Boolean.toString(enabled));
+    }
+
+    private void registerSinglePhysicalPrimaryKeyRuleTable(String schemaName, String pkColumnName, int range) {
+        Map<JoinStatus, Long> pkHistogram = new LinkedHashMap<>();
+        boolean[] defaultStatus = defaultReferenceStatusForTags(referencedPhysicalPrimaryKeyTags.get(pkColumnName));
+        pkHistogram.put(new JoinStatus(defaultStatus), (long) range);
+        RuleTableManager.getInstance().addRuleTable(pkColumnName, pkHistogram, batchStart);
+        logger.info("表 {} 单列物理主键 {} 注册默认 RuleTable status={}，本批 [{}-{})",
+                schemaName, pkColumnName, Arrays.toString(defaultStatus), batchStart, batchStart + range);
+    }
+
+    static boolean[] defaultReferenceStatusForTags(Set<Integer> referencedTags) {
+        if (referencedTags == null || referencedTags.isEmpty()) {
+            return new boolean[]{true};
+        }
+        int maxTag = referencedTags.stream()
+                .filter(Objects::nonNull)
+                .mapToInt(Integer::intValue)
+                .max()
+                .orElse(0);
+        if (maxTag < 0) {
+            return new boolean[]{true};
+        }
+        boolean[] status = new boolean[maxTag + 1];
+        for (Integer tag : referencedTags) {
+            if (tag != null && tag >= 0) {
+                status[tag] = true;
+            }
+        }
+        return status;
+    }
+
+    static String formatForeignKeyOutput(String localFkColumnName, long fkValue) {
+        if (fkValue == Long.MIN_VALUE) {
+            return "\\N";
+        }
+        String refColumnName = TableManager.getInstance().getRefKey(localFkColumnName);
+        if (refColumnName == null) {
+            refColumnName = LogicalJoinReferenceRegistry.getRefKey(localFkColumnName);
+        }
+        if (refColumnName == null) {
+            return Long.toString(fkValue);
+        }
+        Column refColumn = ColumnManager.getInstance().getColumn(refColumnName);
+        return PrimaryKeyValueFormatter.format(refColumn, fkValue);
+    }
+
+    static String formatMaterializedLocalColumnOutput(String localColumnName, int rowIndex) {
+        Column localColumn = ColumnManager.getInstance().getColumn(localColumnName);
+        if (localColumn == null) {
+            throw new IllegalStateException("Cannot find local column for materialized GENERIC FK output: " + localColumnName);
+        }
+        return localColumn.output(rowIndex);
     }
 
     private static void refreshGenericJoinWeightsAfterBatch(
@@ -134,6 +213,56 @@ public class DataGenerator implements Callable<Integer> {
         return schema2chains;
     }
 
+    static Map<String, Set<Integer>> collectReferencedPhysicalPrimaryKeyTags(Map<String, List<ConstraintChain>> query2chains) {
+        Map<String, Set<Integer>> result = new HashMap<>();
+        if (query2chains == null) {
+            return result;
+        }
+        Map<String, Set<Integer>> localColumnToJoinTags = collectLocalJoinColumnTags(query2chains);
+        for (List<ConstraintChain> chains : query2chains.values()) {
+            for (ConstraintChain chain : chains) {
+                for (ConstraintChainNode node : chain.getNodes()) {
+                    if (!(node instanceof ConstraintChainFkJoinNode joinNode)) {
+                        continue;
+                    }
+                    String refCol = joinNode.getRefCols();
+                    if (refCol == null || !TableManager.getInstance().isPrimaryKey(refCol)) {
+                        continue;
+                    }
+                    result.computeIfAbsent(refCol, ignored -> new HashSet<>()).add(joinNode.getPkTag());
+                }
+            }
+        }
+        for (Map.Entry<String, Set<Integer>> localAndTags : localColumnToJoinTags.entrySet()) {
+            String physicalRefCol = TableManager.getInstance().getRefKey(localAndTags.getKey());
+            if (physicalRefCol != null && TableManager.getInstance().isPrimaryKey(physicalRefCol)) {
+                result.computeIfAbsent(physicalRefCol, ignored -> new HashSet<>()).addAll(localAndTags.getValue());
+            }
+            String logicalRefCol = LogicalJoinReferenceRegistry.getRefKey(localAndTags.getKey());
+            if (logicalRefCol != null && TableManager.getInstance().isPrimaryKey(logicalRefCol)) {
+                result.computeIfAbsent(logicalRefCol, ignored -> new HashSet<>()).addAll(localAndTags.getValue());
+            }
+        }
+        return result;
+    }
+
+    static Map<String, Set<Integer>> collectLocalJoinColumnTags(Map<String, List<ConstraintChain>> query2chains) {
+        Map<String, Set<Integer>> result = new HashMap<>();
+        if (query2chains == null) {
+            return result;
+        }
+        for (List<ConstraintChain> chains : query2chains.values()) {
+            for (ConstraintChain chain : chains) {
+                for (ConstraintChainNode node : chain.getNodes()) {
+                    if (node instanceof ConstraintChainFkJoinNode joinNode && joinNode.getLocalCols() != null) {
+                        result.computeIfAbsent(joinNode.getLocalCols(), ignored -> new HashSet<>()).add(joinNode.getPkTag());
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
     /**
      * 从constraint chains中提取所有查询涉及的列
      */
@@ -162,9 +291,10 @@ public class DataGenerator implements Callable<Integer> {
                 // 从join nodes中提取列
                 for (ConstraintChainNode node : chain.getNodes()) {
                     if (node instanceof ConstraintChainFkJoinNode joinNode) {
-                        // 添加本地列（外键列）
-                        involvedColumns.add(tablePrefix + joinNode.getLocalCols());
-                        // 添加引用列（主键列）
+                        // 添加本地列（外键列 / generic join key）
+                        String localCol = joinNode.getLocalCols();
+                        involvedColumns.add(localCol.contains(".") ? localCol : tablePrefix + localCol);
+                        // 添加引用列（主键列 / generic referenced key）
                         if (joinNode.getRefCols() != null) {
                             involvedColumns.add(joinNode.getRefCols());
                         }
@@ -204,6 +334,90 @@ public class DataGenerator implements Callable<Integer> {
         return out;
     }
 
+    /**
+     * 当前表在查询约束中出现的规范列名。用于主键策略判断与额外 prepare：
+     * filter 是硬选择率约束，JOIN/groupKey 是计划关键分布约束。
+     */
+    private static Set<String> collectPlanCriticalCanonicalColumnsForTable(String schemaName, List<ConstraintChain> chains) {
+        Set<String> out = collectFilterCanonicalColumnsForTable(schemaName, chains);
+        if (chains == null) {
+            return out;
+        }
+        String prefix = schemaName + ".";
+        for (ConstraintChain chain : chains) {
+            String tablePrefix = chain.getTableName() + ".";
+            for (ConstraintChainNode node : chain.getNodes()) {
+                if (node instanceof ConstraintChainFkJoinNode fkNode) {
+                    addIfBelongsToTable(out, prefix, tablePrefix, fkNode.getLocalCols());
+                    addIfBelongsToTable(out, prefix, tablePrefix, fkNode.getRefCols());
+                } else if (node instanceof ConstraintChainAggregateNode aggregateNode
+                        && aggregateNode.getGroupKey() != null) {
+                    for (String groupKey : aggregateNode.getGroupKey()) {
+                        addIfBelongsToTable(out, prefix, tablePrefix, groupKey);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    private static void addIfBelongsToTable(Set<String> out, String tablePrefix, String fallbackPrefix, String column) {
+        if (column == null || column.isBlank()) {
+            return;
+        }
+        String canonical = column.contains(".") ? column : fallbackPrefix + column;
+        if (canonical.startsWith(tablePrefix)) {
+            out.add(canonical);
+        }
+    }
+
+    private static void registerLogicalGenericJoinReferences(Map<String, List<ConstraintChain>> query2chains) {
+        LogicalJoinReferenceRegistry.clear();
+        int registered = 0;
+        for (List<ConstraintChain> chains : query2chains.values()) {
+            for (ConstraintChain chain : chains) {
+                for (ConstraintChainNode node : chain.getNodes()) {
+                    if (!(node instanceof ConstraintChainFkJoinNode fkNode)) {
+                        continue;
+                    }
+                    if (fkNode.requiresPhysicalForeignKeyGeneration()) {
+                        continue;
+                    }
+                    String refTable = LogicalJoinReferenceRegistry.canonicalTableName(fkNode.getRefCols());
+                    ConstraintChain refChain = chains.stream()
+                            .filter(candidate -> refTable != null && refTable.equals(candidate.getTableName()))
+                            .findFirst()
+                            .orElse(null);
+                    LogicalJoinReferenceRegistry.register(
+                            fkNode.getLocalCols(), fkNode.getRefCols(), fkNode.getPkTag(), refChain);
+                    registered++;
+                }
+            }
+        }
+        if (registered > 0) {
+            logger.info("已注册 {} 条 GENERIC 逻辑JOIN引用（不写入 schema foreignKeys）", registered);
+        }
+    }
+
+    private static Set<String> collectGenericJoinLocalColumnsForTable(String schemaName, List<ConstraintChain> chains) {
+        Set<String> out = new HashSet<>();
+        if (chains == null) {
+            return out;
+        }
+        String prefix = schemaName + ".";
+        for (ConstraintChain chain : chains) {
+            for (ConstraintChainNode node : chain.getNodes()) {
+                if (node instanceof ConstraintChainFkJoinNode fkNode && !fkNode.requiresPhysicalForeignKeyGeneration()) {
+                    String local = fkNode.getLocalCols();
+                    if (local != null && local.startsWith(prefix)) {
+                        out.add(local);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     private static String safeColumnOutput(String canonicalName, int rowId) {
         Column c = ColumnManager.getInstance().getColumn(canonicalName);
         if (c == null) {
@@ -213,6 +427,8 @@ public class DataGenerator implements Callable<Integer> {
     }
 
     private void init() throws IOException {
+        configureCpTimeoutSeconds(cpTimeoutSeconds);
+        configureFilterEvalDiagnostics(filterEvalDiagnostics);
         // 设置分布模型系统属性
         System.setProperty("mirage.distribution.model", distributionModel);
         logger.info("设置数据生成分布模型: {}", distributionModel);
@@ -229,6 +445,10 @@ public class DataGenerator implements Callable<Integer> {
         ConstraintChainManager.getInstance().setResultDir(configPath);
         Map<String, List<ConstraintChain>> query2chains = ConstraintChainManager.loadConstrainChainResult(configPath);
         ConstraintChainManager.getInstance().cleanConstrainChains(query2chains);
+        registerLogicalGenericJoinReferences(query2chains);
+        localJoinColumnTags = collectLocalJoinColumnTags(query2chains);
+        referencedPhysicalPrimaryKeyTags = collectReferencedPhysicalPrimaryKeyTags(query2chains);
+        logger.info("收集到 {} 个被 JOIN 引用的物理主键 tag 映射", referencedPhysicalPrimaryKeyTags.size());
 
         // 如果提供了统计信息路径，加载统计信息并构建 CDF
         if (statisticsPath != null && !statisticsPath.isEmpty()) {
@@ -307,13 +527,26 @@ public class DataGenerator implements Callable<Integer> {
         stepRange = (long) stepSize * (generatorNum - 1);
     }
 
+    static boolean canGenerateJoinKey(ConstraintChainFkJoinNode fkJoinNode) {
+        if (fkJoinNode.requiresPhysicalForeignKeyGeneration()) {
+            return true;
+        }
+        String refCol = LogicalJoinReferenceRegistry.getRefKey(fkJoinNode.getLocalCols());
+        return refCol != null && RuleTableManager.getInstance().hasRuleTable(refCol);
+    }
+
     private List<List<String>> classifyFkDependency(List<ConstraintChain> haveFkConstrainChains) {
         Graph<String, DefaultEdge> graph = new DefaultDirectedGraph<>(DefaultEdge.class);
         HashSet<String> allFkCols = new HashSet<>();
         for (ConstraintChain haveFkConstrainChain : haveFkConstrainChains) {
             for (ConstraintChainFkJoinNode fkJoinNode : haveFkConstrainChain.getFkNodes()) {
-                allFkCols.add(fkJoinNode.getLocalCols());
+                if (canGenerateJoinKey(fkJoinNode)) {
+                    allFkCols.add(fkJoinNode.getLocalCols());
+                }
             }
+        }
+        if (allFkCols.isEmpty()) {
+            return Collections.emptyList();
         }
         if (closeTopologicalReduce) {
             return Collections.singletonList(new ArrayList<>(allFkCols));
@@ -322,7 +555,12 @@ public class DataGenerator implements Callable<Integer> {
             graph.addVertex(fkCol);
         }
         for (ConstraintChain haveFkConstrainChain : haveFkConstrainChains) {
-            List<ConstraintChainFkJoinNode> fkJoinNodes = haveFkConstrainChain.getFkNodes();
+            List<ConstraintChainFkJoinNode> fkJoinNodes = haveFkConstrainChain.getFkNodes().stream()
+                    .filter(DataGenerator::canGenerateJoinKey)
+                    .toList();
+            if (fkJoinNodes.isEmpty()) {
+                continue;
+            }
             String lastColName = fkJoinNodes.getFirst().getLocalCols();
             for (int i = 1; i < fkJoinNodes.size(); i++) {
                 String currentColName = fkJoinNodes.get(i).getLocalCols();
@@ -361,8 +599,462 @@ public class DataGenerator implements Callable<Integer> {
         return statusVectorOfEachRow;
     }
 
+    private void enforceSingleColumnAggregateGroupKeyDistinctness(String schemaName, List<ConstraintChain> allChains,
+                                                                  boolean[][] statusVectorOfEachRow, int range) {
+        if (schemaName == null || allChains == null || statusVectorOfEachRow == null || range <= 0) {
+            return;
+        }
+        String tablePrefix = schemaName + ".";
+        for (ConstraintChain chain : allChains) {
+            if (chain == null || !schemaName.equals(chain.getTableName())) {
+                continue;
+            }
+            int chainIndex = chain.getChainIndex();
+            if (chainIndex < 0) {
+                continue;
+            }
+            for (ConstraintChainNode node : chain.getNodes()) {
+                if (!(node instanceof ConstraintChainAggregateNode aggregateNode)
+                        || !aggregateNode.isSingleGroupKeyDistinctConstraint()) {
+                    continue;
+                }
+                String groupKey = normalizeAggregateGroupKey(aggregateNode.getGroupKey().get(0));
+                if (groupKey == null || !groupKey.startsWith(tablePrefix)) {
+                    continue;
+                }
+                Column groupColumn = ColumnManager.getInstance().getColumn(groupKey);
+                if (groupColumn == null) {
+                    logger.warn("AGG groupKey {} 无法应用distinct约束：ColumnManager中不存在该列", groupKey);
+                    continue;
+                }
+                boolean[] matched = new boolean[range];
+                long filterRows = 0L;
+                for (int rowId = 0; rowId < range; rowId++) {
+                    boolean isMatched = chainIndex < statusVectorOfEachRow[rowId].length
+                            && statusVectorOfEachRow[rowId][chainIndex];
+                    matched[rowId] = isMatched;
+                    if (isMatched) {
+                        filterRows++;
+                    }
+                }
+                long targetDistinct = aggregateNode.computeDistinctTargetForCp(filterRows);
+                if (filterRows == 0L || targetDistinct <= 0L) {
+                    logger.info("AGG groupKey {} 跳过distinct约束：filterRows={}, targetDistinct={}",
+                            groupKey, filterRows, targetDistinct);
+                    continue;
+                }
+                if (targetDistinct > filterRows) {
+                    targetDistinct = filterRows;
+                }
+                Object[] actual = prepareAggregateOverrideValues(groupKey, range);
+                long matchedOrdinal = 0L;
+                for (int rowId = 0; rowId < range; rowId++) {
+                    if (!matched[rowId]) {
+                        continue;
+                    }
+                    long ordinal = batchStart + (matchedOrdinal % targetDistinct);
+                    actual[rowId] = PrimaryKeyValueFormatter.format(groupColumn, ordinal);
+                    matchedOrdinal++;
+                }
+                groupColumn.setColumnActualData(actual);
+                Set<String> matchedDistinct = new HashSet<>();
+                for (int rowId = 0; rowId < range; rowId++) {
+                    if (matched[rowId] && actual[rowId] != null) {
+                        matchedDistinct.add(String.valueOf(actual[rowId]));
+                    }
+                }
+                logger.info("AGG groupKey {} 已应用单列distinct约束：filterRows={}, targetDistinct={}, actualMatchedDistinct={}, inputRows={}, outputRows={}",
+                        groupKey, filterRows, targetDistinct, matchedDistinct.size(),
+                        aggregateNode.getInputRows(), aggregateNode.getOutputRows());
+            }
+        }
+    }
+
+    private static String normalizeAggregateGroupKey(String groupKey) {
+        if (groupKey == null) {
+            return null;
+        }
+        String normalized = groupKey.trim();
+        while (normalized.startsWith("(") && normalized.contains(")::")) {
+            int castIndex = normalized.lastIndexOf(")::");
+            if (castIndex <= 0) {
+                break;
+            }
+            normalized = normalized.substring(1, castIndex).trim();
+        }
+        int castIndex = normalized.indexOf("::");
+        if (castIndex >= 0) {
+            normalized = normalized.substring(0, castIndex).trim();
+        }
+        while (normalized.startsWith("(") && normalized.endsWith(")") && normalized.length() > 2) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        return normalized;
+    }
+
+    private static Object[] prepareAggregateOverrideValues(String groupKey, int range) {
+        Column column = ColumnManager.getInstance().getColumn(groupKey);
+        Object[] current = column == null ? null : column.getColumnActualData();
+        Object[] actual = new Object[range];
+        if (current != null) {
+            System.arraycopy(current, 0, actual, 0, Math.min(current.length, range));
+        }
+        for (int rowId = 0; rowId < range; rowId++) {
+            if (actual[rowId] == null) {
+                String output = safeColumnOutput(groupKey, rowId);
+                actual[rowId] = isNullOutput(output) ? null : output;
+            }
+        }
+        return actual;
+    }
+
+    private void registerGenericReferenceRuleTables(String schemaName, List<ConstraintChain> allChains,
+                                                    boolean[][] statusVectorOfEachRow, int range) {
+        List<LogicalJoinReferenceRegistry.Reference> references =
+                LogicalJoinReferenceRegistry.getReferencesForTable(schemaName);
+        if (references.isEmpty()) {
+            return;
+        }
+        Map<String, List<LogicalJoinReferenceRegistry.Reference>> refCol2Refs = new LinkedHashMap<>();
+        for (LogicalJoinReferenceRegistry.Reference ref : references) {
+            refCol2Refs.computeIfAbsent(ref.refCol(), k -> new ArrayList<>()).add(ref);
+        }
+        for (Map.Entry<String, List<LogicalJoinReferenceRegistry.Reference>> entry : refCol2Refs.entrySet()) {
+            String refCol = entry.getKey();
+            List<LogicalJoinReferenceRegistry.Reference> refs = entry.getValue();
+            refs.sort((a, b) -> Integer.compare(a.joinTag(), b.joinTag()));
+            int statusLength = computeGenericReferenceStatusLength(refs);
+
+            JoinStatus[] statuses = new JoinStatus[range];
+            Map<JoinStatus, Long> histogram = new LinkedHashMap<>();
+            for (int rowId = 0; rowId < range; rowId++) {
+                boolean[] bits = new boolean[statusLength];
+                Arrays.fill(bits, true);
+                for (LogicalJoinReferenceRegistry.Reference ref : refs) {
+                    int tag = ref.joinTag();
+                    if (tag < 0 || tag >= bits.length) {
+                        continue;
+                    }
+                    ConstraintChain refChain = ref.refChain();
+                    if (refChain == null || allChains == null || !allChains.contains(refChain)) {
+                        bits[tag] = true;
+                        continue;
+                    }
+                    int chainIndex = refChain.getChainIndex();
+                    bits[tag] = chainIndex >= 0 && chainIndex < statusVectorOfEachRow[rowId].length
+                            && statusVectorOfEachRow[rowId][chainIndex];
+                }
+                JoinStatus status = new JoinStatus(bits);
+                statuses[rowId] = status;
+                histogram.merge(status, 1L, Long::sum);
+            }
+
+            RuleTableManager.getInstance().addRuleTable(refCol, histogram, batchStart);
+            logger.info("GENERIC逻辑参照列 {} 注册RuleTable完成: tags={}, histogram={}（先注册状态，待主键/tuple定型后再保存最终 witness rows）",
+                    refCol, refs.stream().map(LogicalJoinReferenceRegistry.Reference::joinTag).toList(), histogram);
+        }
+    }
+
+    private void finalizeGenericReferenceSnapshots(String schemaName, List<ConstraintChain> allChains,
+                                                   boolean[][] statusVectorOfEachRow, int range,
+                                                   Map<String, Object[]> finalizedPrimaryKeyOutputs) {
+        List<LogicalJoinReferenceRegistry.Reference> references =
+                LogicalJoinReferenceRegistry.getReferencesForTable(schemaName);
+        if (references.isEmpty()) {
+            return;
+        }
+        Map<String, List<LogicalJoinReferenceRegistry.Reference>> refCol2Refs = new LinkedHashMap<>();
+        for (LogicalJoinReferenceRegistry.Reference ref : references) {
+            refCol2Refs.computeIfAbsent(ref.refCol(), k -> new ArrayList<>()).add(ref);
+        }
+        for (Map.Entry<String, List<LogicalJoinReferenceRegistry.Reference>> entry : refCol2Refs.entrySet()) {
+            String refCol = entry.getKey();
+            List<LogicalJoinReferenceRegistry.Reference> refs = entry.getValue();
+            refs.sort((a, b) -> Integer.compare(a.joinTag(), b.joinTag()));
+            int statusLength = computeGenericReferenceStatusLength(refs);
+
+            JoinStatus[] statuses = new JoinStatus[range];
+            Map<JoinStatus, Long> histogram = new LinkedHashMap<>();
+            for (int rowId = 0; rowId < range; rowId++) {
+                boolean[] bits = new boolean[statusLength];
+                Arrays.fill(bits, true);
+                for (LogicalJoinReferenceRegistry.Reference ref : refs) {
+                    int tag = ref.joinTag();
+                    if (tag < 0 || tag >= bits.length) {
+                        continue;
+                    }
+                    ConstraintChain refChain = ref.refChain();
+                    if (refChain == null || allChains == null || !allChains.contains(refChain)) {
+                        bits[tag] = true;
+                        continue;
+                    }
+                    int chainIndex = refChain.getChainIndex();
+                    bits[tag] = chainIndex >= 0 && chainIndex < statusVectorOfEachRow[rowId].length
+                            && statusVectorOfEachRow[rowId][chainIndex];
+                }
+                JoinStatus status = new JoinStatus(bits);
+                statuses[rowId] = status;
+                histogram.merge(status, 1L, Long::sum);
+            }
+
+            Object[] refActual = buildFinalGenericReferenceActualValues(refCol, range, finalizedPrimaryKeyOutputs);
+            Object[] orderedValues = buildRuleTableOrderedReferenceValues(refActual, statuses, histogram);
+            Map<String, Set<String>> matchValuesByLocalCol = buildGenericMatchValueSets(refActual, statuses, refs);
+            Map<String, Map<String, Long>> matchValueCountsByLocalCol =
+                    buildGenericMatchValueCounts(refActual, statuses, refs);
+            LogicalJoinReferenceRegistry.rememberReferenceValues(
+                    refCol, orderedValues, batchStart, matchValuesByLocalCol, matchValueCountsByLocalCol);
+            logger.info("GENERIC逻辑参照列 {} 真实值已按最终 tuple 状态顺序保存: rawRows={}, orderedRows={}, matchDomains={}, matchDomainRows={}",
+                    refCol, refActual.length, orderedValues.length,
+                    matchValuesByLocalCol.entrySet().stream()
+                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().size())),
+                    matchValueCountsByLocalCol.entrySet().stream()
+                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey,
+                                    e -> e.getValue().values().stream().mapToLong(Long::longValue).sum())));
+        }
+    }
+
+    private int computeGenericReferenceStatusLength(List<LogicalJoinReferenceRegistry.Reference> refs) {
+        int maxTag = 0;
+        for (LogicalJoinReferenceRegistry.Reference ref : refs) {
+            maxTag = Math.max(maxTag, ref.joinTag());
+            Set<Integer> tagsForLocal = localJoinColumnTags.get(ref.localCol());
+            if (tagsForLocal != null) {
+                for (Integer tag : tagsForLocal) {
+                    if (tag != null) {
+                        maxTag = Math.max(maxTag, tag);
+                    }
+                }
+            }
+        }
+        return maxTag + 1;
+    }
+
+
+    static Object[] buildRuleTableOrderedReferenceValues(Object[] refActual, JoinStatus[] statuses,
+                                                         Map<JoinStatus, Long> histogram) {
+        if (refActual == null || statuses == null || histogram == null) {
+            return new Object[0];
+        }
+        int n = Math.min(refActual.length, statuses.length);
+        Object[] ordered = new Object[n];
+        int out = 0;
+        for (JoinStatus status : histogram.keySet()) {
+            for (int rowId = 0; rowId < n; rowId++) {
+                if (status.equals(statuses[rowId])) {
+                    ordered[out++] = refActual[rowId];
+                }
+            }
+        }
+        if (out == ordered.length) {
+            return ordered;
+        }
+        return java.util.Arrays.copyOf(ordered, out);
+    }
+
+    private static Object[] buildFinalGenericReferenceActualValues(String refCol, int range,
+                                                                   Map<String, Object[]> finalizedPrimaryKeyOutputs) {
+        if (finalizedPrimaryKeyOutputs != null) {
+            Object[] finalizedPkValues = finalizedPrimaryKeyOutputs.get(refCol);
+            if (finalizedPkValues != null) {
+                return Arrays.copyOf(finalizedPkValues, Math.min(finalizedPkValues.length, range));
+            }
+        }
+        Object[] finalOutputs = new Object[range];
+        for (int rowId = 0; rowId < range; rowId++) {
+            String output = safeColumnOutput(refCol, rowId);
+            finalOutputs[rowId] = isNullOutput(output) ? null : output;
+        }
+        return finalOutputs;
+    }
+
+    private static Map<String, Set<String>> buildGenericMatchValueSets(Object[] refActual, JoinStatus[] statuses,
+                                                                       List<LogicalJoinReferenceRegistry.Reference> refs) {
+        Map<String, Set<String>> out = new LinkedHashMap<>();
+        if (refActual == null || statuses == null || refs == null) {
+            return out;
+        }
+        int n = Math.min(refActual.length, statuses.length);
+        for (int refIndex = 0; refIndex < refs.size(); refIndex++) {
+            Set<String> values = new HashSet<>();
+            int joinTag = refs.get(refIndex).joinTag();
+            for (int rowId = 0; rowId < n; rowId++) {
+                boolean[] bits = statuses[rowId].status();
+                if (joinTag >= 0 && joinTag < bits.length && bits[joinTag] && refActual[rowId] != null) {
+                    values.add(String.valueOf(refActual[rowId]));
+                }
+            }
+            out.put(refs.get(refIndex).localCol(), values);
+        }
+        return out;
+    }
+
+    private static Map<String, Map<String, Long>> buildGenericMatchValueCounts(Object[] refActual, JoinStatus[] statuses,
+                                                                               List<LogicalJoinReferenceRegistry.Reference> refs) {
+        Map<String, Map<String, Long>> out = new LinkedHashMap<>();
+        if (refActual == null || statuses == null || refs == null) {
+            return out;
+        }
+        int n = Math.min(refActual.length, statuses.length);
+        for (int refIndex = 0; refIndex < refs.size(); refIndex++) {
+            Map<String, Long> counts = new LinkedHashMap<>();
+            int joinTag = refs.get(refIndex).joinTag();
+            for (int rowId = 0; rowId < n; rowId++) {
+                boolean[] bits = statuses[rowId].status();
+                if (joinTag >= 0 && joinTag < bits.length && bits[joinTag] && refActual[rowId] != null) {
+                    counts.merge(String.valueOf(refActual[rowId]), 1L, Long::sum);
+                }
+            }
+            out.put(refs.get(refIndex).localCol(), counts);
+        }
+        return out;
+    }
+
+    private Set<String> materializeGenericLocalJoinColumns(String schemaName, List<ConstraintChain> allChains,
+                                                           Map<String, long[]> fkCol2Values) {
+        Set<String> genericLocalCols = collectGenericJoinLocalColumnsForTable(schemaName, allChains);
+        if (genericLocalCols.isEmpty()) {
+            return java.util.Collections.emptySet();
+        }
+        Set<String> materialized = new HashSet<>();
+        for (String genericLocalCol : genericLocalCols) {
+            long[] values = fkCol2Values.remove(genericLocalCol);
+            if (values == null) {
+                continue;
+            }
+            Object[] actualValues = new Object[values.length];
+            int resolved = 0;
+            ConstraintChainFkJoinNode joinMeta = findGenericJoinNode(allChains, genericLocalCol);
+            long matchedRowsTarget = countPositiveLogicalJoinKeys(values);
+            long allowedExtraRows = computeAllowedGenericOuterJoinExtraRows(joinMeta, matchedRowsTarget);
+            long usedExtraRows = 0L;
+            long matchedOrdinal = 0L;
+            for (int i = 0; i < values.length; i++) {
+                Object refValue = LogicalJoinReferenceRegistry.resolveReferenceValue(genericLocalCol, values[i]);
+                if (refValue != null) {
+                    actualValues[i] = refValue;
+                    resolved++;
+                    usedExtraRows += Math.max(0L,
+                            LogicalJoinReferenceRegistry.matchedValueMultiplicity(genericLocalCol, refValue) - 1L);
+                    matchedOrdinal++;
+                } else if (values[i] >= 0L) {
+                    long remainingExtraRows = Math.max(0L, allowedExtraRows - usedExtraRows);
+                    long remainingMatchedRows = Math.max(1L, matchedRowsTarget - matchedOrdinal);
+                    Object fallbackValue = LogicalJoinReferenceRegistry.fallbackMatchedReferenceValue(
+                            genericLocalCol, matchedOrdinal, remainingExtraRows, remainingMatchedRows);
+                    if (fallbackValue != null) {
+                        actualValues[i] = fallbackValue;
+                        resolved++;
+                        usedExtraRows += Math.max(0L,
+                                LogicalJoinReferenceRegistry.matchedValueMultiplicity(genericLocalCol, fallbackValue) - 1L);
+                        matchedOrdinal++;
+                    } else {
+                        actualValues[i] = values[i];
+                    }
+                } else {
+                    actualValues[i] = values[i] == Long.MIN_VALUE ? null : values[i];
+                }
+            }
+            ColumnManager.getInstance().overrideColumnActualData(genericLocalCol, actualValues);
+            long actualMatches = LogicalJoinReferenceRegistry.countMatchingReferenceValues(genericLocalCol, actualValues);
+            long innerRows = LogicalJoinReferenceRegistry.countInnerJoinRowsWithReferenceMultiplicity(genericLocalCol, actualValues);
+            long leftRows = LogicalJoinReferenceRegistry.countLeftJoinRowsWithReferenceMultiplicity(genericLocalCol, actualValues);
+            int matchDomainSize = LogicalJoinReferenceRegistry.matchingReferenceDomainSize(genericLocalCol);
+            logger.info("GENERIC本地JOIN列 {} 已覆盖普通属性列输出位置，不作为物理FK字段追加；{} / {} 行解析为参照列真实值；本批实际可JOIN匹配行数={}，匹配域NDV={}，按右表重复度估算innerRows={}，leftRows={}",
+                    genericLocalCol, resolved, values.length, actualMatches, matchDomainSize, innerRows, leftRows);
+            materialized.add(genericLocalCol);
+        }
+        return materialized;
+    }
+
+    private static ConstraintChainFkJoinNode findGenericJoinNode(List<ConstraintChain> allChains, String localCol) {
+        if (allChains == null || localCol == null) {
+            return null;
+        }
+        for (ConstraintChain chain : allChains) {
+            if (chain == null) {
+                continue;
+            }
+            for (ConstraintChainNode node : chain.getNodes()) {
+                if (!(node instanceof ConstraintChainFkJoinNode fkNode)) {
+                    continue;
+                }
+                if (fkNode.requiresPhysicalForeignKeyGeneration()) {
+                    continue;
+                }
+                if (localCol.equals(fkNode.getLocalCols())) {
+                    return fkNode;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static long countPositiveLogicalJoinKeys(long[] values) {
+        if (values == null) {
+            return 0L;
+        }
+        long matched = 0L;
+        for (long value : values) {
+            if (value >= 0L) {
+                matched++;
+            }
+        }
+        return matched;
+    }
+
+    private static long computeAllowedGenericOuterJoinExtraRows(ConstraintChainFkJoinNode joinMeta, long matchedRows) {
+        if (joinMeta == null || joinMeta.getJoinModel() != JoinConstraintJoinModel.GENERIC
+                || joinMeta.getType() != ConstraintNodeJoinType.OUTER_JOIN
+                || joinMeta.getTargetJoinRows() == null || joinMeta.getLocalInputRows() == null
+                || joinMeta.getLocalInputRows() <= 0L || matchedRows <= 0L) {
+            return 0L;
+        }
+        BigDecimal scaledTarget = BigDecimal.valueOf(matchedRows)
+                .multiply(BigDecimal.valueOf(joinMeta.getTargetJoinRows()))
+                .divide(BigDecimal.valueOf(joinMeta.getLocalInputRows()), 0, RoundingMode.HALF_UP);
+        return Math.max(0L, scaledTarget.longValue() - matchedRows);
+    }
+
+    private Map<String, Object[]> captureFinalizedPrimaryKeyOutputs(String schemaName, int[] pkStatusChainIndexes,
+                                                                    StringBuilder[] keyData, int range) {
+        if (pkStatusChainIndexes != null && pkStatusChainIndexes.length > 0) {
+            return Map.of();
+        }
+        List<String> pkList;
+        try {
+            pkList = new ArrayList<>(TableManager.getInstance().getPhysicalPrimaryKeysList(schemaName));
+        } catch (CannotFindSchemaException e) {
+            logger.debug("captureFinalizedPrimaryKeyOutputs({}): {}", schemaName, e.getMessage());
+            return Map.of();
+        }
+        if (pkList.isEmpty() || keyData == null || keyData.length == 0) {
+            return Map.of();
+        }
+        int pkCount = pkList.size();
+        Map<String, Object[]> out = new LinkedHashMap<>();
+        for (String pkCol : pkList) {
+            out.put(pkCol, new Object[range]);
+        }
+        for (int rowId = 0; rowId < Math.min(range, keyData.length); rowId++) {
+            String row = keyData[rowId] == null ? "" : keyData[rowId].toString();
+            if (row.isEmpty()) {
+                return Map.of();
+            }
+            String[] fields = row.split(java.util.regex.Pattern.quote(DataExportConstants.FIELD_DELIMITER), -1);
+            if (fields.length < pkCount) {
+                return Map.of();
+            }
+            for (int pkIndex = 0; pkIndex < pkCount; pkIndex++) {
+                String value = fields[pkIndex];
+                out.get(pkList.get(pkIndex))[rowId] = isNullOutput(value) ? null : value;
+            }
+        }
+        return out;
+    }
+
     private StringBuilder[] generatePks(boolean[][] statusVectorOfEachRow, int[] pkStatusChainIndexes, String pkName,
-            String schemaName, Set<String> filterCanonicalColumns) {
+            String schemaName, Set<String> filterCanonicalColumns, Set<String> planCriticalCanonicalColumns) {
         // partsupp 兼容标准 TPCH schema：
         // Mirage 原始实现对“复合主键表”仍会额外输出一列单列PK（通常是 0..N-1 的行号），导致输出多一列。
         // 标准 TPCH 的 partsupp 只有 5 列 (ps_partkey, ps_suppkey, ps_availqty, ps_supplycost, ps_comment)，
@@ -386,42 +1078,49 @@ public class DataGenerator implements Callable<Integer> {
                 }
             }
         }
-
+        Set<String> pkPlanCritical = new HashSet<>();
+        if (planCriticalCanonicalColumns != null) {
+            for (String c : planCriticalCanonicalColumns) {
+                if (TableManager.getInstance().isPrimaryKey(c)) {
+                    pkPlanCritical.add(c);
+                }
+            }
+        }
+ 
         List<String> pkList = new ArrayList<>();
         try {
-            pkList = new ArrayList<>(TableManager.getInstance().getCompletePrimaryKeysList(schemaName));
+            pkList = new ArrayList<>(TableManager.getInstance().getPhysicalPrimaryKeysList(schemaName));
         } catch (CannotFindSchemaException e) {
-            logger.debug("getCompletePrimaryKeysList({}): {}", schemaName, e.getMessage());
+            logger.debug("getPhysicalPrimaryKeysList({}): {}", schemaName, e.getMessage());
         }
-        if (pkList.isEmpty() && pkName != null && !pkName.isEmpty()) {
-            pkList = Arrays.stream(pkName.split(",")).map(String::trim).filter(s -> !s.isEmpty())
-                    .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        // Physical output must not fall back to logical/synthetic PK columns from pkName.
+        if (pkStatusChainIndexes.length > 0 && pkList.size() > 1) {
+            throw new UnsupportedOperationException(String.format(
+                    "Composite primary key JOIN RuleTable requires tuple-coordinated FK generation, "
+                            + "which is not implemented yet. table=%s, pkColumns=%s, pkName=%s",
+                    schemaName, pkList, pkName));
         }
 
-        // 业务表：过滤条件命中主键列时，主键段与 prepareTupleData 对齐（无 PK join RuleTable 时）
-        if (!pkInFilter.isEmpty() && pkStatusChainIndexes.length == 0 && !pkList.isEmpty()) {
+        // 业务表：查询关键约束命中物理主键列时，主键段与 prepareTupleData 对齐后做必要的唯一性校验/修复。
+        if (!pkPlanCritical.isEmpty() && pkStatusChainIndexes.length == 0 && !pkList.isEmpty()) {
             if (pkList.size() == 1 && pkInFilter.contains(pkList.get(0))) {
                 final String colName = pkList.get(0);
-                StringBuilder[] rowData = new StringBuilder[range];
-                IntStream.range(0, range).parallel().forEach(rowId ->
-                        rowData[rowId] = new StringBuilder(safeColumnOutput(colName, rowId)).append(DataExportConstants.FIELD_DELIMITER_CHAR));
-                logger.info("表 {} 单列主键且出现在过滤中，主键段使用列生成值: {}", schemaName, colName);
+                StringBuilder[] rowData = generateSingleConstrainedPrimaryKey(range, schemaName, colName);
+                registerSinglePhysicalPrimaryKeyRuleTable(schemaName, colName, range);
+                logger.info("表 {} 单列主键且出现在过滤中，主键段使用列生成值并校验唯一性: {}", schemaName, colName);
                 return rowData;
             }
-            StringBuilder[] rowData = new StringBuilder[range];
-            List<String> ordered = new ArrayList<>(pkList);
-            IntStream.range(0, range).parallel().forEach(rowId -> {
-                StringBuilder sb = new StringBuilder();
-                for (String pkCol : ordered) {
-                    sb.append(safeColumnOutput(pkCol, rowId)).append(DataExportConstants.FIELD_DELIMITER_CHAR);
-                }
-                rowData[rowId] = sb;
-            });
-            logger.info("表 {} 复合主键且部分主键列出现在过滤中，主键段按 schema 顺序输出 {} 列", schemaName, ordered.size());
-            return rowData;
+            if (pkList.size() > 1) {
+                List<String> ordered = new ArrayList<>(pkList);
+                StringBuilder[] rowData = generateCompositeConstrainedPrimaryKey(range, schemaName, ordered, pkPlanCritical);
+                logger.info("表 {} 复合主键含查询关键列 {}，保留关键列分布并修复tuple唯一性，本批 [{}-{})",
+                        schemaName, pkPlanCritical, batchStart, batchStart + range);
+                return rowData;
+            }
         }
-        if (!pkInFilter.isEmpty() && pkStatusChainIndexes.length > 0) {
-            logger.warn("表 {} 同时存在 PK join RuleTable 与过滤中的主键列，主键段沿用 RuleTable（可能与过滤用统计值不完全一致）", schemaName);
+        if (!pkPlanCritical.isEmpty() && pkStatusChainIndexes.length > 0) {
+            logger.warn("表 {} 同时存在 PK join RuleTable 与查询关键主键列 {}，主键段沿用 RuleTable（可能与列统计/过滤用值不完全一致）",
+                    schemaName, pkPlanCritical);
         }
 
         StringBuilder[] rowData = new StringBuilder[range];
@@ -439,13 +1138,134 @@ public class DataGenerator implements Callable<Integer> {
             IntStream.range(0, range).parallel().forEach(rowId ->
                     rowData[rowId] = new StringBuilder().append(pkStatus2Location.get(allStatuses[rowId]).getAndIncrement()).append(DataExportConstants.FIELD_DELIMITER_CHAR));
         }
-        //处理不需要外键填充的主键状态
-        else if (!pkName.isEmpty()) {
-            IntStream.range(0, range).parallel().forEach(i -> rowData[i] = new StringBuilder().append(batchStart + i).append(DataExportConstants.FIELD_DELIMITER_CHAR));
+        //处理不需要外键填充的物理主键状态
+        else if (!pkList.isEmpty()) {
+            List<String> ordered = new ArrayList<>(pkList);
+            if (ordered.size() == 1) {
+                String pkColumnName = ordered.get(0);
+                registerSinglePhysicalPrimaryKeyRuleTable(schemaName, pkColumnName, range);
+                Column pkColumn = ColumnManager.getInstance().getColumn(pkColumnName);
+                IntStream.range(0, range).parallel().forEach(i -> {
+                    long ordinal = batchStart + i;
+                    String value = PrimaryKeyValueFormatter.format(pkColumn, ordinal);
+                    rowData[i] = new StringBuilder(value).append(DataExportConstants.FIELD_DELIMITER_CHAR);
+                });
+                logger.info("表 {} 单列物理主键 {} 使用类型感知唯一值输出，本批 [{}-{})",
+                        schemaName, pkColumnName, batchStart, batchStart + range);
+            } else {
+                List<Column> pkColumns = ordered.stream()
+                        .map(columnName -> ColumnManager.getInstance().getColumn(columnName))
+                        .toList();
+                IntStream.range(0, range).parallel().forEach(i -> {
+                    StringBuilder sb = new StringBuilder();
+                    for (int pkIndex = 0; pkIndex < ordered.size(); pkIndex++) {
+                        long ordinal = batchStart + i;
+                        sb.append(PrimaryKeyValueFormatter.format(pkColumns.get(pkIndex), ordinal, pkIndex))
+                                .append(DataExportConstants.FIELD_DELIMITER_CHAR);
+                    }
+                    rowData[i] = sb;
+                });
+                logger.info("表 {} 复合物理主键 {} 使用类型感知唯一tuple输出，本批 [{}-{})",
+                        schemaName, ordered, batchStart, batchStart + range);
+            }
         } else {
             IntStream.range(0, range).parallel().forEach(i -> rowData[i] = new StringBuilder());
         }
         return rowData;
+    }
+
+    private StringBuilder[] generateSingleConstrainedPrimaryKey(int range, String schemaName, String pkColumnName) {
+        StringBuilder[] rowData = new StringBuilder[range];
+        Set<String> seen = new HashSet<>(Math.max(16, range * 2));
+        for (int rowId = 0; rowId < range; rowId++) {
+            String value = safeColumnOutput(pkColumnName, rowId);
+            if (isNullOutput(value) || !seen.add(value)) {
+                throw new IllegalStateException(String.format(
+                        "Single-column primary key uniqueness infeasible for table %s column %s at row %d, value=%s",
+                        schemaName, pkColumnName, rowId, value));
+            }
+            rowData[rowId] = new StringBuilder(value).append(DataExportConstants.FIELD_DELIMITER_CHAR);
+        }
+        return rowData;
+    }
+
+    private StringBuilder[] generateCompositeConstrainedPrimaryKey(int range, String schemaName, List<String> orderedPkColumns,
+                                                                   Set<String> criticalPkColumns) {
+        List<Column> pkColumns = orderedPkColumns.stream()
+                .map(columnName -> ColumnManager.getInstance().getColumn(columnName))
+                .toList();
+        List<Integer> repairableIndexes = new ArrayList<>();
+        for (int pkIndex = 0; pkIndex < orderedPkColumns.size(); pkIndex++) {
+            if (!criticalPkColumns.contains(orderedPkColumns.get(pkIndex))) {
+                repairableIndexes.add(pkIndex);
+            }
+        }
+
+        String[][] values = new String[range][orderedPkColumns.size()];
+        for (int rowId = 0; rowId < range; rowId++) {
+            for (int pkIndex = 0; pkIndex < orderedPkColumns.size(); pkIndex++) {
+                String value = safeColumnOutput(orderedPkColumns.get(pkIndex), rowId);
+                if (isNullOutput(value) && criticalPkColumns.contains(orderedPkColumns.get(pkIndex))) {
+                    throw new IllegalStateException(String.format(
+                            "Composite primary key critical column generated NULL for table %s column %s at row %d",
+                            schemaName, orderedPkColumns.get(pkIndex), rowId));
+                }
+                values[rowId][pkIndex] = value;
+            }
+        }
+
+        Set<String> usedTuples = new HashSet<>(Math.max(16, range * 2));
+        for (int rowId = 0; rowId < range; rowId++) {
+            String tuple = compositeTupleKey(values[rowId]);
+            if (usedTuples.add(tuple)) {
+                continue;
+            }
+            if (repairableIndexes.isEmpty()) {
+                throw compositePkInfeasible(schemaName, orderedPkColumns, criticalPkColumns, rowId, tuple);
+            }
+            boolean repaired = false;
+            long maxAttempts = Math.max(1024L, (long) range + 1024L);
+            for (long attempt = 0; attempt < maxAttempts && !repaired; attempt++) {
+                for (int repairIndex : repairableIndexes) {
+                    long ordinal = batchStart + rowId + (attempt + 1L) * Math.max(1, range);
+                    values[rowId][repairIndex] = PrimaryKeyValueFormatter.format(
+                            pkColumns.get(repairIndex), ordinal, repairIndex);
+                    tuple = compositeTupleKey(values[rowId]);
+                    if (usedTuples.add(tuple)) {
+                        repaired = true;
+                        break;
+                    }
+                }
+            }
+            if (!repaired) {
+                throw compositePkInfeasible(schemaName, orderedPkColumns, criticalPkColumns, rowId, tuple);
+            }
+        }
+
+        StringBuilder[] rowData = new StringBuilder[range];
+        IntStream.range(0, range).parallel().forEach(rowId -> {
+            StringBuilder sb = new StringBuilder();
+            for (String value : values[rowId]) {
+                sb.append(value).append(DataExportConstants.FIELD_DELIMITER_CHAR);
+            }
+            rowData[rowId] = sb;
+        });
+        return rowData;
+    }
+
+    private static boolean isNullOutput(String value) {
+        return value == null || "\\N".equals(value);
+    }
+
+    private static String compositeTupleKey(String[] values) {
+        return String.join("\u001F", values);
+    }
+
+    private static IllegalStateException compositePkInfeasible(String schemaName, List<String> orderedPkColumns,
+                                                              Set<String> criticalPkColumns, int rowId, String tuple) {
+        return new IllegalStateException(String.format(
+                "Composite primary key uniqueness infeasible for table %s at row %d, pkColumns=%s, criticalColumns=%s, duplicateTuple=%s",
+                schemaName, rowId, orderedPkColumns, criticalPkColumns, tuple));
     }
 
     private Map<String, long[]> generateFks(boolean[][] statusVectorOfEachRow, FkGenerator[] fkGenerators,
@@ -461,8 +1281,12 @@ public class DataGenerator implements Callable<Integer> {
         return fkCol2Values;
     }
 
-    private void generateFksNoConstraints(Map<String, long[]> fkCol2Values, SortedMap<String, Long> allFk2TableSize, int range) {
+    private void generateFksNoConstraints(Map<String, long[]> fkCol2Values, SortedMap<String, Long> allFk2TableSize,
+                                          int range, Set<String> skipColumns) {
         for (Map.Entry<String, Long> fk2TableSize : allFk2TableSize.entrySet()) {
+            if (skipColumns != null && skipColumns.contains(fk2TableSize.getKey())) {
+                continue;
+            }
             if (!fkCol2Values.containsKey(fk2TableSize.getKey())) {
                 long[] fks = ThreadLocalRandom.current().longs(range, 1, fk2TableSize.getValue() + 1).toArray();
                 fkCol2Values.put(fk2TableSize.getKey(), fks);
@@ -483,7 +1307,6 @@ public class DataGenerator implements Callable<Integer> {
     }
 
     private void generateTableWithoutChains(String pkName, long tableSize, String schemaName) {
-        long pkStart = ColumnManager.getInstance().getMin(pkName);
         while (batchStart < tableSize) {
             int range = (int) (Math.min(batchStart + batchSize, tableSize) - batchStart);
             //生成属性列数据
@@ -497,11 +1320,7 @@ public class DataGenerator implements Callable<Integer> {
                     schemaName, batchStart, batchStart + range, System.currentTimeMillis() - tAtt);
             StringBuilder[] rowData = new StringBuilder[range];
             long tRow = System.currentTimeMillis();
-            if (pkName.isEmpty()) {
-                IntStream.range(0, range).parallel().forEach(i -> rowData[i] = new StringBuilder());
-            } else {
-                IntStream.range(0, range).parallel().forEach(i -> rowData[i] = new StringBuilder().append(batchStart + i + pkStart).append(DataExportConstants.FIELD_DELIMITER_CHAR));
-            }
+            rowData = generatePks(new boolean[range][0], new int[0], pkName, schemaName, Set.of(), Set.of());
             dataWriter.addWriteTask(schemaName, rowData, attRows);
             logger.info("表 {} 本批 [{}-{}) 主键列组装与 addWriteTask 提交，耗时 {} ms",
                     schemaName, batchStart, batchStart + range, System.currentTimeMillis() - tRow);
@@ -511,6 +1330,7 @@ public class DataGenerator implements Callable<Integer> {
 
     @Override
     public Integer call() throws Exception {
+        configureCpTimeoutSeconds(cpTimeoutSeconds);
         if (expandRules) {
             RuleTable.openExpandRuleMap();
         }
@@ -531,12 +1351,13 @@ public class DataGenerator implements Callable<Integer> {
             computeStepRange(tableSize);
             String startDataOutPut = rb.getString("startDataOutPut");
             logger.info(startDataOutPut, schemaName, tableSize);
-            // ★★★ 修复：确保表的所有列都被加载（stats模式下需要） ★★★
-            List<String> attColumnNames = TableManager.getInstance().getAttributeColumnNames(schemaName);
-            // 准备生成的属性列生成器
-            ColumnManager.getInstance().cacheAttributeColumn(attColumnNames);
             // 获得所有约束链
             List<ConstraintChain> allChains = schema2chains.get(schemaName);
+            // ★★★ 修复：确保表的所有列都被加载（stats模式下需要） ★★★
+            List<String> attColumnNames = new ArrayList<>(TableManager.getInstance().getAttributeColumnNames(schemaName));
+            // GENERIC join 的 local key 仍保持普通属性列输出位置；FkGenerator 只覆盖该列本批实际值。
+            // 准备生成的属性列生成器
+            ColumnManager.getInstance().cacheAttributeColumn(attColumnNames);
             logger.info("used memory before GN(MB): {}", (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024);
             if (allChains == null) {
                 // todo 当前假设主键是连续的
@@ -566,12 +1387,13 @@ public class DataGenerator implements Callable<Integer> {
             // logLoadedAccParameters(allChains, schemaName);
 
             Set<String> filterColsForTable = collectFilterCanonicalColumnsForTable(schemaName, allChains);
+            Set<String> planCriticalColsForTable = collectPlanCriticalCanonicalColumnsForTable(schemaName, allChains);
             // if (!filterColsForTable.isEmpty()) {
             //     logger.info("表 {} 约束链过滤涉及列（含主键等）: {}", schemaName, filterColsForTable);
             // }
             
             // 获取外键约束链
-            List<ConstraintChain> haveFkConstrainChains = allChains.stream().filter(ConstraintChain::hasFkNode).toList();
+            List<ConstraintChain> haveFkConstrainChains = allChains.stream().filter(ConstraintChain::hasJoinKeyNode).toList();
             // 根据外键列的连接依赖性划外键列生成组
             List<List<String>> fkGroups = classifyFkDependency(haveFkConstrainChains);
             SortedMap<String, Long> allFk2TableSize = TableManager.getInstance().getFk2PkTableSize(schemaName);
@@ -585,13 +1407,13 @@ public class DataGenerator implements Callable<Integer> {
                 int range = (int) (Math.min(batchStart + batchSize, tableSize) - batchStart);
                 String generateFromTo = rb.getString("generateFromTo");
                 logger.info(generateFromTo, batchStart, batchStart + range);
-                // 属性列 + 过滤涉及列（及任一带过滤主键时整表主键列）prepare，供 evaluate 与主键段写出
+                // 属性列 + 查询关键列（及任一关键主键时整表主键列）prepare，供 evaluate 与主键段写出
                 long start1 = System.currentTimeMillis();
-                Set<String> prepareExtra = new HashSet<>(filterColsForTable);
-                boolean anyPkInFilter = filterColsForTable.stream().anyMatch(TableManager.getInstance()::isPrimaryKey);
-                if (anyPkInFilter) {
+                Set<String> prepareExtra = new HashSet<>(planCriticalColsForTable);
+                boolean anyCriticalPk = planCriticalColsForTable.stream().anyMatch(TableManager.getInstance()::isPrimaryKey);
+                if (anyCriticalPk) {
                     try {
-                        prepareExtra.addAll(TableManager.getInstance().getCompletePrimaryKeysList(schemaName));
+                        prepareExtra.addAll(TableManager.getInstance().getPhysicalPrimaryKeysList(schemaName));
                     } catch (CannotFindSchemaException e) {
                         logger.warn("表 {} 扩展主键列 prepare 失败: {}", schemaName, e.getMessage());
                     }
@@ -610,8 +1432,8 @@ public class DataGenerator implements Callable<Integer> {
                 computeStatusVectorTime += System.currentTimeMillis() - startComputeStatusVector;
 
                 // 记录 status vector 统计（已注释，需排查时再取消块注释）
-                /*
-                if (logger.isInfoEnabled()) {
+                
+                if (statusVectorDiagnostics && logger.isInfoEnabled()) {
                     logger.info("=== Status Vector详细分析 (表: {}, 范围: 0-{}) ===", schemaName, batchStart + range);
 
                     // 打印每个Chain对应的查询信息（每一位的含义）
@@ -696,30 +1518,45 @@ public class DataGenerator implements Callable<Integer> {
 
                     logger.info("=== Status Vector分析结束 ===\n");
                 }
-                */
                 
+                enforceSingleColumnAggregateGroupKeyDistinctness(schemaName, allChains, statusVectorOfEachRow, range);
+                
+                registerGenericReferenceRuleTables(schemaName, allChains, statusVectorOfEachRow, range);
+
                 // 生成外键列数据
                 Map<String, long[]> fkCol2Values = generateFks(statusVectorOfEachRow, fkGenerators, fkGroups);
-                generateFksNoConstraints(fkCol2Values, allFk2TableSize, range);
                 refreshGenericJoinWeightsAfterBatch(genericJoinHistogramAccumulators, allChains, fkCol2Values);
+                Set<String> materializedGenericLocalCols =
+                        materializeGenericLocalJoinColumns(schemaName, allChains, fkCol2Values);
+                generateFksNoConstraints(fkCol2Values, allFk2TableSize, range, materializedGenericLocalCols);
 
                 // 生成主键列数据
                 long startPopulatePK = System.currentTimeMillis();
-                StringBuilder[] keyData = generatePks(statusVectorOfEachRow, pkStatusChainIndexes, pkName, schemaName, filterColsForTable);
+                StringBuilder[] keyData = generatePks(statusVectorOfEachRow, pkStatusChainIndexes, pkName,
+                        schemaName, filterColsForTable, planCriticalColsForTable);
                 populateKeyTime += System.currentTimeMillis() - startPopulatePK;
+                Map<String, Object[]> finalizedPrimaryKeyOutputs =
+                        captureFinalizedPrimaryKeyOutputs(schemaName, pkStatusChainIndexes, keyData, range);
+                finalizeGenericReferenceSnapshots(schemaName, allChains, statusVectorOfEachRow, range,
+                        finalizedPrimaryKeyOutputs);
 
                 // 组合外键列数据和主键列数据
-                IntStream.range(0, keyData.length).parallel().forEach(index -> {
-                    StringBuilder row = keyData[index];
-                    for (long[] fks : fkCol2Values.values()) {
-                        long fk = fks[index];
-                        if (fk == Long.MIN_VALUE) {
-                            row.append("\\N").append(DataExportConstants.FIELD_DELIMITER_CHAR);
-                        } else {
-                            row.append(fk).append(DataExportConstants.FIELD_DELIMITER_CHAR);
-                        }
-                    }
-                });
+	                IntStream.range(0, keyData.length).parallel().forEach(index -> {
+	                    StringBuilder row = keyData[index];
+	                    for (String fkColumnName : allFk2TableSize.keySet()) {
+                            if (materializedGenericLocalCols.contains(fkColumnName)) {
+                                row.append(formatMaterializedLocalColumnOutput(fkColumnName, index))
+                                        .append(DataExportConstants.FIELD_DELIMITER_CHAR);
+                                continue;
+                            }
+                            long[] values = fkCol2Values.get(fkColumnName);
+                            if (values == null) {
+                                throw new IllegalStateException("Missing FK values for output column " + fkColumnName);
+                            }
+                            row.append(formatForeignKeyOutput(fkColumnName, values[index]))
+                                    .append(DataExportConstants.FIELD_DELIMITER_CHAR);
+	                    }
+	                });
                 //转换为字符串准备输出
                 String[] data = ColumnManager.getInstance().generateAttRows(range);
                 dataWriter.addWriteTask(schemaName, keyData, data);

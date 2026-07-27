@@ -30,9 +30,21 @@ public final class GenericJoinAntiDomain {
     }
 
     /**
+     * CP 选择了“全 false”合成状态时，RuleTable 中没有真实参照键。这里生成稳定的反域虚拟键，
+     * 使本地列可以表达“不匹配任何参照行”，从而满足 GENERIC inner/outer join 的匹配基数。
+     */
+    public static long syntheticAntiDomainKey(int rowId, int fkColIndex) {
+        long base = (long) rowId + 1L + ((long) fkColIndex * 1_000_000_000L);
+        return -base;
+    }
+
+    /**
      * 对 {@link MergedRuleTable#getKey} 的采样结果按需加偏移（仅部分行），供 {@link FkGenerator} populate 路径调用。
      */
     public static long maybeBiasGenericSample(long rawKey, int rowId, int fkColIndex, ConstraintChainFkJoinNode meta) {
+        if (rawKey == Long.MIN_VALUE && meta != null && meta.getJoinModel() == JoinConstraintJoinModel.GENERIC) {
+            return syntheticAntiDomainKey(rowId, fkColIndex);
+        }
         if (meta == null || meta.getJoinModel() != JoinConstraintJoinModel.GENERIC) {
             return rawKey;
         }

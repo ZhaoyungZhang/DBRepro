@@ -23,6 +23,17 @@ public class RuleTableManager {
         return INSTANCE;
     }
 
+    public void clear() {
+        ruleTableMap.clear();
+    }
+
+    public boolean hasRuleTable(String colName) {
+        if (ruleTableMap.containsKey(colName)) {
+            return true;
+        }
+        return resolveRuleTableForReferencedColumn(colName) != null;
+    }
+
     /**
      * FK 参照列 {@code colName} 无独立 RuleTable 时（常见于参照非主键列，如 trml_addr_code），
      * 使用同表已注册的复合主键 RuleTable（与主键列共用行槽位/批次索引语义）。

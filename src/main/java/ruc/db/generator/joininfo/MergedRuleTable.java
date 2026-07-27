@@ -77,8 +77,13 @@ public class MergedRuleTable {
         return pkStatuses;
     }
 
+    public boolean containsStatus(JoinStatus status) {
+        return status2Rule.containsKey(status);
+    }
+
     public long getStatusSize(JoinStatus status) {
-        return status2Rule.get(status).totalSize;
+        Rule rule = status2Rule.get(status);
+        return rule == null ? 0L : rule.totalSize;
     }
 
     public void refreshRuleCounter() {

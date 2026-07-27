@@ -4,6 +4,7 @@ import ruc.db.generator.constraintchain.ConstraintChain;
 import ruc.db.generator.constraintchain.ConstraintChainNode;
 import ruc.db.generator.constraintchain.agg.ConstraintChainAggregateNode;
 import ruc.db.generator.constraintchain.join.ConstraintChainFkJoinNode;
+import ruc.db.generator.constraintchain.join.ConstraintNodeJoinType;
 import ruc.db.generator.constraintchain.join.JoinConstraintJoinModel;
 import ruc.db.generator.joininfo.JoinStatus;
 import ruc.db.generator.joininfo.MergedRuleTable;
@@ -31,6 +32,7 @@ public class FkGenerator {
     private final long tableSize;
 
     private final Map<Integer, Long> distinctFkIndex2Cardinality = new HashMap<>();
+    private final Set<Integer> aggregateDistinctFkIndexes = new HashSet<>();
     private final int[] involvedChainIndexes;
     private final List<List<ConstraintChainNode>> chainNodesList = new LinkedList<>();
 
@@ -69,7 +71,7 @@ public class FkGenerator {
         this.tableSize = tableSize;
         List<Integer> involvedChainIndexesList = new ArrayList<>();
         for (ConstraintChain fkConstrainChain : fkConstrainChains) {
-            var involvedNodes = fkConstrainChain.getInvolvedNodes(fkGroup);
+            var involvedNodes = fkConstrainChain.getInvolvedJoinKeyNodes(fkGroup);
             if (!involvedNodes.isEmpty()) {
                 involvedChainIndexesList.add(fkConstrainChain.getChainIndex());
                 chainNodesList.add(involvedNodes);
@@ -86,7 +88,10 @@ public class FkGenerator {
                 if (n instanceof ConstraintChainFkJoinNode fk) {
                     int j = fk.joinStatusIndex;
                     if (j >= 0 && j < fkJoinMetaByColIndex.length) {
-                        fkJoinMetaByColIndex[j] = fk;
+                        ConstraintChainFkJoinNode existing = fkJoinMetaByColIndex[j];
+                        if (shouldPreferAsLocalColumnMeta(existing, fk)) {
+                            fkJoinMetaByColIndex[j] = fk;
+                        }
                     }
                 }
             }
@@ -96,10 +101,14 @@ public class FkGenerator {
         int i = 0;
         ruleTables = new MergedRuleTable[involvedFkCol2JoinTags.size()];
         for (Map.Entry<String, int[]> involvedFk2JoinTag : involvedFkCol2JoinTags.entrySet()) {
-            String pkCol = TableManager.getInstance().getRefKey(involvedFk2JoinTag.getKey());
+            String pkCol = chooseReferenceRuleTableKey(involvedFk2JoinTag.getKey());
             ruleTables[i] = RuleTableManager.getInstance().getRuleTable(pkCol, involvedFk2JoinTag.getValue());
             boolean withNull = ColumnManager.getInstance().getNullPercentage(involvedFk2JoinTag.getKey()).compareTo(BigDecimal.ZERO) > 0;
-            pkCol2AllStatus[i] = ruleTables[i].getPkStatus(withNull);
+            boolean withGenericAntiStatus = needsSyntheticFalseStatusForGenericJoin(involvedFk2JoinTag.getKey());
+            pkCol2AllStatus[i] = ruleTables[i].getPkStatus(withNull || withGenericAntiStatus);
+            if (withGenericAntiStatus) {
+                logger.info("GENERIC FK列 {} 启用合成 all-false 反域状态，用于满足非匹配JOIN基数", involvedFk2JoinTag.getKey());
+            }
             i++;
         }
         // 计算联合status
@@ -115,6 +124,81 @@ public class FkGenerator {
         }
     }
 
+    private boolean shouldPreferAsLocalColumnMeta(ConstraintChainFkJoinNode existing,
+                                                  ConstraintChainFkJoinNode candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        if (existing == null) {
+            return true;
+        }
+        boolean existingGeneric = existing.getJoinModel() == JoinConstraintJoinModel.GENERIC;
+        boolean candidateGeneric = candidate.getJoinModel() == JoinConstraintJoinModel.GENERIC;
+        if (candidateGeneric != existingGeneric) {
+            return candidateGeneric;
+        }
+        return false;
+    }
+
+    private String chooseReferenceRuleTableKey(String localCol) {
+        String logicalRef = LogicalJoinReferenceRegistry.getRefKey(localCol);
+        String physicalRef = TableManager.getInstance().getRefKey(localCol);
+        if (hasGenericJoinForLocalColumn(localCol) && logicalRef != null
+                && RuleTableManager.getInstance().hasRuleTable(logicalRef)) {
+            if (physicalRef != null && !physicalRef.equals(logicalRef)) {
+                logger.info("共享JOIN列 {} 同时存在物理参照 {} 与 GENERIC 参照 {}，FK生成优先使用 GENERIC RuleTable",
+                        localCol, physicalRef, logicalRef);
+            }
+            return logicalRef;
+        }
+        if (physicalRef != null) {
+            return physicalRef;
+        }
+        return logicalRef;
+    }
+
+    private boolean hasGenericJoinForLocalColumn(String localCol) {
+        for (List<ConstraintChainNode> chain : chainNodesList) {
+            for (ConstraintChainNode node : chain) {
+                if (!(node instanceof ConstraintChainFkJoinNode fk)) {
+                    continue;
+                }
+                if (!localCol.equals(fk.getLocalCols())) {
+                    continue;
+                }
+                if (fk.getJoinModel() == JoinConstraintJoinModel.GENERIC) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean needsSyntheticFalseStatusForGenericJoin(String localCol) {
+        for (List<ConstraintChainNode> chain : chainNodesList) {
+            for (ConstraintChainNode node : chain) {
+                if (!(node instanceof ConstraintChainFkJoinNode fk)) {
+                    continue;
+                }
+                if (fk.getJoinModel() != JoinConstraintJoinModel.GENERIC) {
+                    continue;
+                }
+                if (!localCol.equals(fk.getLocalCols())) {
+                    continue;
+                }
+                Long target = fk.getTargetJoinRows();
+                Long left = fk.getLeftInputRows();
+                if (target != null && left != null && left > 0 && target < left) {
+                    return true;
+                }
+                if (fk.getProbability() != null && fk.getProbability().compareTo(BigDecimal.ONE) < 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private void applySharePkConstraint(ConstructCpModel cpModel, int range) {
         BigDecimal batchPercentage = BigDecimal.valueOf(range).divide(BigDecimal.valueOf(tableSize), DECIMAL_DIVIDE_SCALE, RoundingMode.HALF_UP);
         logger.info("计算FK共享约束: range={}, tableSize={}, batchPercentage={}", range, tableSize, batchPercentage);
@@ -128,13 +212,18 @@ public class FkGenerator {
             Map<ArrayList<Integer>, Long> pkIndex2Size = new HashMap<>();
             MergedRuleTable ruleTable = ruleTables[distinctFKIndex];
             for (Map.Entry<JoinStatus, ArrayList<Integer>> statusArrayListEntry : status2PkIndex.entrySet()) {
-                long pkStatusSize = ruleTable.getStatusSize(statusArrayListEntry.getKey());
+                JoinStatus shareStatus = statusArrayListEntry.getKey();
+                if (!ruleTable.containsStatus(shareStatus)) {
+                    logger.debug("跳过FK共享约束: FK列[{}], JoinStatus={} 为合成反域状态，不受真实RuleTable容量限制", distinctFKIndex, shareStatus);
+                    continue;
+                }
+                long pkStatusSize = ruleTable.getStatusSize(shareStatus);
                 BigDecimal bBatchPkStatusSize = BigDecimal.valueOf(pkStatusSize).multiply(batchPercentage);
                 long batchPkStatusSize = bBatchPkStatusSize.setScale(0, RoundingMode.UP).longValue();
                 
                 // 记录详细信息用于调试
                 logger.info("FK共享约束计算: FK列[{}], JoinStatus={}, pkStatusSize={}, batchPercentage={}, 计算值={}, 向上取整后={}",
-                    distinctFKIndex, statusArrayListEntry.getKey(), pkStatusSize, batchPercentage, bBatchPkStatusSize, batchPkStatusSize);
+                    distinctFKIndex, shareStatus, pkStatusSize, batchPercentage, bBatchPkStatusSize, batchPkStatusSize);
                 
                 // 警告：如果batchPkStatusSize太小，可能导致与其他distinct约束冲突
                 if (batchPkStatusSize <= 1 && pkStatusSize > 1) {
@@ -156,6 +245,7 @@ public class FkGenerator {
             chainNodesList.size());
         ConstructCpModel constructCpModel = new ConstructCpModel();
         constructCpModel.initModel(statusHistogram, jointPkStatus.length, range);
+        Map<ConstraintChainFkJoinNode, Long> genericInputRowsByNode = new IdentityHashMap<>();
         for (var distinctFkCol2Cardinality : distinctFkIndex2Cardinality.entrySet()) {
             constructCpModel.initDistinctModel(distinctFkCol2Cardinality.getKey(), distinctFkCol2Cardinality.getValue(), tableSize);
         }
@@ -174,6 +264,7 @@ public class FkGenerator {
                     if (fkJoinNode.getJoinModel() == JoinConstraintJoinModel.GENERIC && fkJoinNode.getTargetJoinRows() != null) {
                         logger.debug("GENERIC FK join node: targetJoinRows={}, leftIn={}, rightIn={}",
                                 fkJoinNode.getTargetJoinRows(), fkJoinNode.getLeftInputRows(), fkJoinNode.getRightInputRows());
+                        genericInputRowsByNode.put(fkJoinNode, filterSize);
                     }
                     fkJoinNode.addJoinDistinctConstraint(constructCpModel, filterSize, canBeInput);
                     filterSize = fkJoinNode.addJoinCardinalityConstraint(constructCpModel, filterSize, unFilterSize, canBeInput);
@@ -183,7 +274,7 @@ public class FkGenerator {
                 }
             }
         }
-        GenericJoinPfConstraints.appendTo(constructCpModel, chainNodesList, tableSize);
+        GenericJoinPfConstraints.appendTo(constructCpModel, chainNodesList, tableSize, genericInputRowsByNode);
         applySharePkConstraint(constructCpModel, range);
         return constructCpModel;
     }
@@ -307,6 +398,12 @@ public class FkGenerator {
         ruleTable.refreshRuleCounter();
         int range = pkStatuses.length;
         long[] fkCol = new long[range];
+        ConstraintChainFkJoinNode meta = fkJoinMetaByColIndex != null && fkColIndex < fkJoinMetaByColIndex.length
+                ? fkJoinMetaByColIndex[fkColIndex] : null;
+        long matchedRows = countMatchedRows(meta, fkColIndex, pkStatuses);
+        long allowedExtraFanout = computeAllowedGenericOuterJoinExtraFanout(meta, fkColIndex, pkStatuses);
+        long usedExtraFanout = 0L;
+        long consumedMatchedRows = 0L;
         for (int rowId = 0; rowId < range; rowId++) {
             int pkStatusIndex = pkStatuses[rowId];
             JoinStatus populateStatus = jointPkStatus[pkStatusIndex][fkColIndex];
@@ -318,9 +415,74 @@ public class FkGenerator {
             } else if (fkRange.range != fkRange.totalRange) {
                 fkRange.range = fkRange.totalRange;
             }
-            fkCol[rowId] = ruleTable.getKey(populateStatus, index);
+            long raw = ruleTable.getKey(populateStatus, index);
+            if (meta != null && meta.getJoinModel() == JoinConstraintJoinModel.GENERIC
+                    && !aggregateDistinctFkIndexes.contains(fkColIndex)
+                    && populateStatus.status()[meta.joinStatusLocation]) {
+                if (isHighMatchGenericOuterJoin(meta)) {
+                    long remainingExtraFanout = Math.max(0L, allowedExtraFanout - usedExtraFanout);
+                    long remainingMatchedRows = Math.max(1L, matchedRows - consumedMatchedRows);
+                    raw = LogicalJoinReferenceRegistry.remapToControlledMultiplicityReferenceKey(
+                            meta.getLocalCols(), raw, rowId, remainingExtraFanout, remainingMatchedRows);
+                    usedExtraFanout += Math.max(0L,
+                            LogicalJoinReferenceRegistry.referenceMultiplicity(meta.getLocalCols(), raw) - 1L);
+                } else {
+                    raw = LogicalJoinReferenceRegistry.remapToLowMultiplicityReferenceKey(meta.getLocalCols(), raw, rowId);
+                }
+                consumedMatchedRows++;
+            }
+            fkCol[rowId] = raw;
         }
         return fkCol;
+    }
+
+    private long computeAllowedGenericOuterJoinExtraFanout(ConstraintChainFkJoinNode meta, int fkColIndex,
+                                                           int[] pkStatuses) {
+        if (!isHighMatchGenericOuterJoin(meta) || pkStatuses == null) {
+            return 0L;
+        }
+        long matchedRows = countMatchedRows(meta, fkColIndex, pkStatuses);
+        if (matchedRows <= 0L) {
+            return 0L;
+        }
+        BigDecimal scaledTarget = BigDecimal.valueOf(matchedRows)
+                .multiply(BigDecimal.valueOf(meta.getTargetJoinRows()))
+                .divide(BigDecimal.valueOf(meta.getLocalInputRows()), 0, RoundingMode.HALF_UP);
+        return Math.max(0L, scaledTarget.longValue() - matchedRows);
+    }
+
+    private long countMatchedRows(ConstraintChainFkJoinNode meta, int fkColIndex, int[] pkStatuses) {
+        if (meta == null || pkStatuses == null) {
+            return 0L;
+        }
+        long matchedRows = 0L;
+        for (int pkStatusIndex : pkStatuses) {
+            if (pkStatusIndex < 0 || pkStatusIndex >= jointPkStatus.length) {
+                continue;
+            }
+            JoinStatus status = jointPkStatus[pkStatusIndex][fkColIndex];
+            if (status.status()[meta.joinStatusLocation]) {
+                matchedRows++;
+            }
+        }
+        return matchedRows;
+    }
+
+    private boolean isHighMatchGenericOuterJoin(ConstraintChainFkJoinNode meta) {
+        if (meta == null || meta.getJoinModel() != JoinConstraintJoinModel.GENERIC
+                || meta.getType() != ConstraintNodeJoinType.OUTER_JOIN
+                || meta.getTargetJoinRows() == null || meta.getLocalInputRows() == null
+                || meta.getLocalInputRows() <= 0L) {
+            return false;
+        }
+        long localRows = meta.getLocalInputRows();
+        long targetRows = meta.getTargetJoinRows();
+        if (targetRows < localRows) {
+            return false;
+        }
+        BigDecimal ratio = BigDecimal.valueOf(targetRows)
+                .divide(BigDecimal.valueOf(localRows), 4, RoundingMode.HALF_UP);
+        return ratio.compareTo(new BigDecimal("1.25")) <= 0;
     }
 
     private long[] populateFkForJCC(int fkColIndex, MergedRuleTable ruleTable, int[] pkStatuses) {
@@ -420,6 +582,14 @@ public class FkGenerator {
         boolean[] ret = new boolean[involvedChainIndexes.length];
         int i = 0;
         for (int involvedChainIndex : involvedChainIndexes) {
+            if (involvedChainIndex < 0 || involvedChainIndex >= originStatus.length) {
+                throw new IllegalArgumentException(String.format(
+                        "RuleTable status length %d cannot satisfy requested join tag/index %d; status=%s, requested=%s",
+                        originStatus.length,
+                        involvedChainIndex,
+                        Arrays.toString(originStatus),
+                        Arrays.toString(involvedChainIndexes)));
+            }
             ret[i++] = originStatus[involvedChainIndex];
         }
         return new JoinStatus(ret);
@@ -464,7 +634,7 @@ public class FkGenerator {
         for (ConstraintChainFkJoinNode fkNode : involvedFkNodes) {
             involvedFkCol2JoinTags.get(fkNode.getLocalCols()).add(fkNode.getPkTag());
             fkNode.joinStatusIndex = fkCols.indexOf(fkNode.getLocalCols());
-            if (fkNode.getPkDistinctProbability() != null) {
+            if (fkNode.getPkDistinctProbability() != null && !fkNode.getType().isSemi()) {
                 distinctFkIndex2Cardinality.put(fkNode.joinStatusIndex, 0L);
             }
         }
@@ -478,13 +648,20 @@ public class FkGenerator {
         List<ConstraintChainAggregateNode> involvedAggNodes = chainNodesList.stream().flatMap(Collection::stream)
                 .filter(ConstraintChainAggregateNode.class::isInstance).map(ConstraintChainAggregateNode.class::cast).toList();
         for (ConstraintChainAggregateNode aggregateNode : involvedAggNodes) {
-            String groupKey = aggregateNode.getGroupKey().get(0);
-            var fkNode = involvedFkNodes.stream().filter(node -> node.getLocalCols().equals(groupKey)).findAny();
+            if (aggregateNode.getGroupKey() == null || aggregateNode.getGroupKey().size() != 1) {
+                logger.warn("Skip unsupported aggregate distinct constraint with groupKey={}", aggregateNode.getGroupKey());
+                continue;
+            }
+            String groupKey = normalizeColumnExpression(aggregateNode.getGroupKey().get(0));
+            var fkNode = involvedFkNodes.stream()
+                    .filter(node -> normalizeColumnExpression(node.getLocalCols()).equals(groupKey))
+                    .findAny();
             if (fkNode.isPresent()) {
                 aggregateNode.joinStatusIndex = fkNode.get().joinStatusIndex;
                 distinctFkIndex2Cardinality.put(aggregateNode.joinStatusIndex, 0L);
+                aggregateDistinctFkIndexes.add(aggregateNode.joinStatusIndex);
             } else {
-                throw new UnsupportedOperationException("无法下推的agg约束");
+                logger.warn("Skip aggregate distinct constraint that cannot bind to a local join key: {}", aggregateNode);
             }
         }
         LinkedHashMap<String, int[]> ret = new LinkedHashMap<>();
@@ -492,6 +669,43 @@ public class FkGenerator {
             ret.put(entry.getKey(), entry.getValue().stream().mapToInt(Integer::intValue).toArray());
         }
         return ret;
+    }
+
+    private static String normalizeColumnExpression(String expression) {
+        if (expression == null) {
+            return null;
+        }
+        String normalized = expression.trim();
+        while (normalized.startsWith("(") && normalized.endsWith(")") && hasBalancedOuterParentheses(normalized)) {
+            normalized = normalized.substring(1, normalized.length() - 1).trim();
+        }
+        int castIndex = normalized.indexOf("::");
+        if (castIndex >= 0) {
+            normalized = normalized.substring(0, castIndex).trim();
+            while (normalized.startsWith("(") && normalized.endsWith(")") && hasBalancedOuterParentheses(normalized)) {
+                normalized = normalized.substring(1, normalized.length() - 1).trim();
+            }
+        }
+        return normalized;
+    }
+
+    private static boolean hasBalancedOuterParentheses(String expression) {
+        int depth = 0;
+        for (int i = 0; i < expression.length(); i++) {
+            char c = expression.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0 && i < expression.length() - 1) {
+                    return false;
+                }
+            }
+            if (depth < 0) {
+                return false;
+            }
+        }
+        return depth == 0;
     }
 
 }

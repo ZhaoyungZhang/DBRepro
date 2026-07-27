@@ -24,12 +24,12 @@ public final class GenericJoinSanityChecker {
         return c;
     }
 
-    /** 与计划目标比较是否在相对容差内（与 {@link ConstructCpModel#addJoinCardinalityConstraint(long)} 约 8% 对齐）。 */
+    /** 与计划目标比较是否在主 JOIN 基数约束的相对容差内。 */
     public static boolean withinJoinCardinalityTolerance(long actual, long target) {
         if (target <= 0) {
             return actual == 0L;
         }
-        long tol = Math.max(1L, (long) (target * 0.08));
+        long tol = Math.max(1L, (long) (target * 0.005));
         return actual >= target - tol && actual <= target + tol;
     }
 }
