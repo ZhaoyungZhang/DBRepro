@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConstructCpModelWeightedJoinTest {
@@ -33,7 +34,20 @@ class ConstructCpModelWeightedJoinTest {
         assertEquals(5L, sol[0][0] + sol[0][1]);
         assertEquals(5L, sol[1][0] + sol[1][1]);
         long weighted = sol[0][0] + 2 * sol[1][0];
-        long tol = Math.max(1L, (long) (7 * 0.08));
+        long tol = Math.max(1L, (long) (7 * 0.01));
         assertTrue(weighted >= 7 - tol && weighted <= 7 + tol);
+    }
+
+    @Test
+    void addWeightedJoinCardinalityConstraint_usesOnePercentTolerance() {
+        ConstructCpModel cp = new ConstructCpModel();
+        Map<JoinStatus, Long> hist = new LinkedHashMap<>();
+        hist.put(new JoinStatus(new boolean[]{true}), 1050L);
+        cp.initModel(hist, 1, 1050);
+        IntVar[][] v = cp.getStatusVars();
+
+        cp.addWeightedJoinCardinalityConstraint(new IntVar[]{v[0][0]}, new long[]{1}, 1000);
+
+        assertThrows(UnsupportedOperationException.class, cp::solve);
     }
 }

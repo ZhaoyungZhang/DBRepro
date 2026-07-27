@@ -12,7 +12,6 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 class GenericJoinAntiDomainTest {
 
@@ -36,6 +35,14 @@ class GenericJoinAntiDomainTest {
         long b1 = GenericJoinAntiDomain.maybeBiasGenericSample(5L, 1, 0, fk);
         assertEquals(105L, b0);
         assertEquals(5L, b1);
+    }
+
+    @Test
+    void minValueForGenericBecomesStableSyntheticAntiKey() {
+        ConstraintChainFkJoinNode fk = new ConstraintChainFkJoinNode("a.x", "b.y", 0, BigDecimal.ONE);
+        fk.setJoinModel(JoinConstraintJoinModel.GENERIC);
+
+        assertEquals(-4L, GenericJoinAntiDomain.maybeBiasGenericSample(Long.MIN_VALUE, 3, 0, fk));
     }
 
     @Test

@@ -17,10 +17,10 @@ class GenericJoinSanityCheckerTest {
     }
 
     @Test
-    void withinTolerance_eightPercentBand() {
+    void withinTolerance_halfPercentBand() {
         assertTrue(GenericJoinSanityChecker.withinJoinCardinalityTolerance(100L, 100L));
-        assertTrue(GenericJoinSanityChecker.withinJoinCardinalityTolerance(93L, 100L));
-        assertTrue(GenericJoinSanityChecker.withinJoinCardinalityTolerance(107L, 100L));
-        assertFalse(GenericJoinSanityChecker.withinJoinCardinalityTolerance(80L, 100L));
+        assertTrue(GenericJoinSanityChecker.withinJoinCardinalityTolerance(1004L, 1000L));
+        assertTrue(GenericJoinSanityChecker.withinJoinCardinalityTolerance(995L, 1000L));
+        assertFalse(GenericJoinSanityChecker.withinJoinCardinalityTolerance(994L, 1000L));
     }
 }

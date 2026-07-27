@@ -17,16 +17,16 @@ class FkJoinChainedCardinalityTest {
         ConstraintChainFkJoinNode j1 = new ConstraintChainFkJoinNode("a.k1", "b.k1", 0, new BigDecimal("0.5"));
         j1.setJoinModel(JoinConstraintJoinModel.GENERIC);
         j1.setTargetJoinRows(500L);
-        j1.setLeftInputRows(40L);
+        j1.setLeftInputRows(10_000L);
         j1.setRightInputRows(1000L);
         long afterFirst = j1.computeJoinCardinalityTargetForCp(10_000L);
-        assertEquals(40L, afterFirst);
+        assertEquals(500L, afterFirst);
 
         ConstraintChainFkJoinNode j2 = new ConstraintChainFkJoinNode("a.k2", "c.k2", 0, new BigDecimal("0.5"));
         j2.setJoinModel(JoinConstraintJoinModel.GENERIC);
         j2.setTargetJoinRows(200L);
-        j2.setLeftInputRows(30L);
+        j2.setLeftInputRows(500L);
         j2.setRightInputRows(500L);
-        assertEquals(30L, j2.computeJoinCardinalityTargetForCp(afterFirst));
+        assertEquals(200L, j2.computeJoinCardinalityTargetForCp(afterFirst));
     }
 }

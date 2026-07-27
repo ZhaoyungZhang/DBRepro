@@ -65,25 +65,25 @@ class ConstraintChainFkJoinNodeJoinTypeSemanticsTest {
     }
 
     /**
-     * {@code targetJoinRows} 在 CP 侧默认按「计划节点 Actual」理解，对 GENERIC 会夹在左右输入与 filterSize 内；
+     * {@code targetJoinRows} 在 CP 侧默认按「计划节点 Actual」理解，对 GENERIC 会按本地输入与 filterSize 夹逼；
      * 与 join 类型正交，但文档中 LEFT 的「输出 vs 匹配」口径需在 prepare 写入时区分。
      */
     @Test
-    void genericTargetRows_clampedSameForOuterAndInner() {
+    void genericTargetRows_clampedByLocalInputSameForOuterAndInner() {
         ConstraintChainFkJoinNode outer = new ConstraintChainFkJoinNode("a.k", "b.k", 0, new BigDecimal("0.5"));
         outer.setJoinModel(JoinConstraintJoinModel.GENERIC);
         outer.setType(ConstraintNodeJoinType.OUTER_JOIN);
         outer.setTargetJoinRows(500L);
-        outer.setLeftInputRows(100L);
+        outer.setLeftInputRows(1000L);
         outer.setRightInputRows(200L);
-        assertEquals(100L, outer.computeJoinCardinalityTargetForCp(999L));
+        assertEquals(500L, outer.computeJoinCardinalityTargetForCp(999L));
 
         ConstraintChainFkJoinNode inner = new ConstraintChainFkJoinNode("a.k", "b.k", 0, new BigDecimal("0.5"));
         inner.setJoinModel(JoinConstraintJoinModel.GENERIC);
         inner.setType(ConstraintNodeJoinType.INNER_JOIN);
         inner.setTargetJoinRows(500L);
-        inner.setLeftInputRows(100L);
+        inner.setLeftInputRows(1000L);
         inner.setRightInputRows(200L);
-        assertEquals(100L, inner.computeJoinCardinalityTargetForCp(999L));
+        assertEquals(500L, inner.computeJoinCardinalityTargetForCp(999L));
     }
 }
